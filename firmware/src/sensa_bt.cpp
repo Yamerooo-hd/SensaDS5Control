@@ -108,9 +108,22 @@ uint8_t sdp_attr_buf[1024]{};
 uint16_t sdp_attr_len = 0;
 uint16_t sdp_cur_attr_id = 0;
 
-// Reconnect throttle after boot
+// Reconnect & controller-owned L2CAP timing
 bool boot_reconnect_tried = false;
 uint32_t state_working_us = 0;
+bool rx_intr_logged = false;
+bool hid_remote_initiated = false;
+uint32_t security_ready_us = 0;
+bool hid_local_fallback_pending = false;
+uint32_t hid_open_ctrl_done_us = 0;
+uint8_t unlock_boot_retries_left = 0;
+
+// Spaced feature prefetch queue (avoids choking clone HID Control endpoint)
+constexpr uint8_t kPrefetchCap = 6;
+uint8_t prefetch_ids[kPrefetchCap]{};
+uint8_t prefetch_count = 0;
+uint8_t prefetch_idx = 0;
+uint32_t prefetch_next_us = 0;
 
 void enqueue_ctrl(uint8_t const *data, uint16_t len) {
     if (len > sizeof(ctrl_q[0].bytes)) return;
@@ -451,6 +464,7 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
 
 void open_hid_channels() {
     if (acl_handle == HCI_CON_HANDLE_INVALID || !security_ready) return;
+    if (hid_remote_initiated) return;
     if (!hid_ctrl_ready && hid_ctrl_cid == 0 && hid_ctrl_pending == 0) {
         uint8_t st = l2cap_create_channel(&l2cap_packet_handler, peer_addr, kPsmHidControl, kMtuControl, &hid_ctrl_pending);
         console_printf("[BT] Open HID Control -> status=0x%02X cid=0x%04X\n", st, hid_ctrl_pending);
@@ -461,17 +475,17 @@ void open_hid_channels() {
 }
 
 void on_hid_session_ready() {
-    console_printf("[BT] HID Control+Interrupt READY! Sending SET_PROTOCOL(Report) + Feature 0x05\n");
-    uint8_t set_proto_report = 0x71; // SET_PROTOCOL | Report Protocol (1)
-    enqueue_ctrl(&set_proto_report, 1);
-    static constexpr uint8_t kReqIds[3] = {0x05, 0x09, 0x20};
-    for (uint8_t id : kReqIds) {
-        uint8_t cmd[2] = {0x43, id};
-        enqueue_ctrl(cmd, 2);
-    }
+    console_printf("[BT] HID Control+Interrupt READY (initiator=%s)! Prefetching features (no 0x71)\n",
+                   hid_remote_initiated ? "controller" : "pico");
+    hid_local_fallback_pending = false;
+    static constexpr uint8_t kReqIds[4] = {0x20, 0x09, 0x22, 0x05};
+    prefetch_count = 4;
+    prefetch_idx = 0;
+    for (uint8_t i = 0; i < 4; ++i) prefetch_ids[i] = kReqIds[i];
+    prefetch_next_us = time_us_32() + 40000u;
+    unlock_boot_retries_left = 4;
+    last_state_send_us = time_us_32();
     usb_set_bt_ready(true);
-    sdp_auto_pending = true;
-    sdp_auto_at_us = time_us_32() + 300000u;
 }
 
 void reset_session_state() {
@@ -483,8 +497,17 @@ void reset_session_state() {
     hid_ctrl_ready = false;
     hid_intr_ready = false;
     hid_session_announced = false;
+    hid_remote_initiated = false;
+    hid_local_fallback_pending = false;
+    hid_open_ctrl_done_us = 0;
+    security_ready_us = 0;
+    rx_intr_logged = false;
     rx_0x31_seen = false;
     security_ready = false;
+    prefetch_count = 0;
+    prefetch_idx = 0;
+    prefetch_next_us = 0;
+    unlock_boot_retries_left = 0;
     last_mon_len = 0;
     std::memset(last_bt_body, 0, sizeof(last_bt_body));
     intr_can_send_req = false;
@@ -515,11 +538,17 @@ void convert_short_0x01_to_ds5(uint8_t const *in9, uint8_t out63[63]) {
     out63[7] = in9[4];
     out63[8] = in9[5];
     out63[9] = in9[6];
+    out63[52] = 0x0A; // Avoid fake 5% low-battery OS/Steam popup before 0x31 unlocks
+    out63[53] = 0x08;
 }
 
 void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size) {
     if (packet_type == L2CAP_DATA_PACKET) {
         if (channel == hid_intr_cid && size > 2) {
+            if (!rx_intr_logged) {
+                rx_intr_logged = true;
+                console_printf("[BT] First Intr RX id=0x%02X len=%u\n", packet[1], size);
+            }
             uint16_t copy_dbg = std::min<uint16_t>(size, sizeof(last_intr_rx));
             std::memcpy(last_intr_rx, packet, copy_dbg);
             last_intr_rx_size = size;
@@ -581,6 +610,8 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
             }
             return;
         }
+        console_printf("[BT] Other L2CAP RX cid=0x%04X (ctrl=0x%04X intr=0x%04X) len=%u\n",
+                       channel, hid_ctrl_cid, hid_intr_cid, size);
         return;
     }
 
@@ -666,11 +697,22 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
         case L2CAP_EVENT_INCOMING_CONNECTION: {
             uint16_t psm = l2cap_event_incoming_connection_get_psm(packet);
             uint16_t lcid = l2cap_event_incoming_connection_get_local_cid(packet);
-            if (psm == kPsmHidControl && hid_ctrl_cid == 0) {
+            if (!security_ready) {
+                console_printf("[BT] Decline incoming L2CAP psm=0x%04X before security\n", psm);
+                l2cap_decline_connection(lcid);
+                break;
+            }
+            if (psm == kPsmHidControl && hid_ctrl_cid == 0 && hid_ctrl_pending == 0) {
+                hid_remote_initiated = true;
+                hid_local_fallback_pending = false;
                 hid_ctrl_pending = lcid;
+                console_printf("[BT] Incoming HID Control cid=0x%04X -> accept\n", lcid);
                 l2cap_accept_connection(lcid);
-            } else if (psm == kPsmHidInterrupt && hid_intr_cid == 0) {
+            } else if (psm == kPsmHidInterrupt && hid_intr_cid == 0 && hid_intr_pending == 0) {
+                hid_remote_initiated = true;
+                hid_local_fallback_pending = false;
                 hid_intr_pending = lcid;
+                console_printf("[BT] Incoming HID Interrupt cid=0x%04X -> accept\n", lcid);
                 l2cap_accept_connection(lcid);
             } else {
                 l2cap_decline_connection(lcid);
@@ -691,8 +733,9 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
                 hid_ctrl_cid = lcid;
                 hid_ctrl_pending = 0;
                 hid_ctrl_ready = true;
+                hid_open_ctrl_done_us = time_us_32();
                 g_telemetry.bt_control_ready = true;
-                open_hid_channels();
+                if (!hid_remote_initiated) open_hid_channels();
             } else if (psm == kPsmHidInterrupt) {
                 hid_intr_cid = lcid;
                 hid_intr_pending = 0;
@@ -727,6 +770,8 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
         case BTSTACK_EVENT_STATE:
             if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
                 state_working_us = time_us_32();
+                gap_set_page_scan_activity(0x0012, 0x0012);
+                gap_set_page_scan_type(PAGE_SCAN_MODE_INTERLACED);
                 refresh_bonded_key();
                 console_printf("[BT] HCI Working! bonded=%d\n", has_bonded_addr ? 1 : 0);
                 if (has_bonded_addr) {
@@ -851,17 +896,21 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
 
         case GAP_EVENT_SECURITY_LEVEL: {
             uint8_t lvl = gap_event_security_level_get_security_level(packet);
-            if (lvl >= LEVEL_2) {
+            if (lvl >= LEVEL_2 && !security_ready) {
                 security_ready = true;
-                open_hid_channels();
+                security_ready_us = time_us_32();
+                hid_local_fallback_pending = true;
+                console_printf("[BT] Security LEVEL_%u -> waiting 650ms for controller HID channels\n", lvl);
             }
             break;
         }
 
         case HCI_EVENT_ENCRYPTION_CHANGE:
-            if (hci_event_encryption_change_get_encryption_enabled(packet) != 0) {
+            if (hci_event_encryption_change_get_encryption_enabled(packet) != 0 && !security_ready) {
                 security_ready = true;
-                open_hid_channels();
+                security_ready_us = time_us_32();
+                hid_local_fallback_pending = true;
+                console_printf("[BT] Encryption ON -> waiting 650ms for controller HID channels\n");
             }
             break;
 
@@ -899,12 +948,13 @@ bool bt_init() {
     }
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
 
-    l2cap_init();
-    sdp_init();
     l2cap_cb_reg.callback = &l2cap_packet_handler;
     l2cap_add_event_handler(&l2cap_cb_reg);
+    sdp_init();
     l2cap_register_service(&l2cap_packet_handler, kPsmHidControl, kMtuControl, LEVEL_2);
     l2cap_register_service(&l2cap_packet_handler, kPsmHidInterrupt, kMtuInterrupt, LEVEL_2);
+    l2cap_init();
+    gap_set_link_supervision_timeout(8000);
 
     gap_ssp_set_enable(true);
     gap_secure_connections_enable(true);
@@ -1126,9 +1176,9 @@ void bt_poll() {
     cyw43_arch_poll();
     uint32_t now_us = time_us_32();
 
-    // Auto-connect to bonded controller shortly after boot
+    // Auto-connect to bonded controller if it hasn't initiated ACL within 2.0s after boot
     if (!boot_reconnect_tried && state_working_us != 0 &&
-        static_cast<uint32_t>(now_us - state_working_us) > 350000u &&
+        static_cast<uint32_t>(now_us - state_working_us) > 2000000u &&
         has_bonded_addr && acl_handle == HCI_CON_HANDLE_INVALID && !pairing_window) {
         boot_reconnect_tried = true;
         bd_addr_copy(peer_addr, bonded_addr);
@@ -1144,6 +1194,21 @@ void bt_poll() {
             1
         );
         console_printf("[BT] Auto-connecting bonded %s -> status=0x%02X\n", bd_addr_to_str(bonded_addr), st);
+    }
+
+    // Fallback to local L2CAP open if controller didn't initiate HID channels in 650ms (or Interrupt in 1.2s)
+    if (security_ready && (!hid_ctrl_ready || !hid_intr_ready)) {
+        if (hid_local_fallback_pending && !hid_ctrl_ready &&
+            static_cast<int32_t>(now_us - security_ready_us) >= 650000) {
+            hid_local_fallback_pending = false;
+            hid_remote_initiated = false;
+            open_hid_channels();
+        } else if (hid_remote_initiated && hid_ctrl_ready && !hid_intr_ready &&
+                   hid_intr_pending == 0 &&
+                   static_cast<int32_t>(now_us - hid_open_ctrl_done_us) >= 1200000) {
+            hid_remote_initiated = false;
+            open_hid_channels();
+        }
     }
 
     if (pairing_window && static_cast<int32_t>(now_us - pairing_deadline_us) >= 0) {
@@ -1162,6 +1227,13 @@ void bt_poll() {
 
     if (!hid_intr_ready) return;
 
+    // Spaced Feature prefetch (0x20, 0x09, 0x22, 0x05)
+    if (prefetch_idx < prefetch_count && static_cast<int32_t>(now_us - prefetch_next_us) >= 0) {
+        uint8_t req[2] = {0x43, prefetch_ids[prefetch_idx++]};
+        enqueue_ctrl(req, 2);
+        prefetch_next_us = now_us + 45000u;
+    }
+
     // Pull next 64B DSP waveform block whenever ready (works even before rx0x31 unlocks)
     int8_t block[64];
     HapticMode wave_proto = g_haptic_mode;
@@ -1177,9 +1249,10 @@ void bt_poll() {
     // Re-sample clock after synchronous L2CAP callbacks inside bt_submit_haptic_waveform to prevent uint32 underflow
     now_us = time_us_32();
 
-    // Retry 0x31 SetHapticsMode unlock only when idle (never interrupt an active 0x36/0x39 haptic stream!)
-    if (!rx_0x31_seen && !dsp_is_haptics_active() &&
-        static_cast<int32_t>(now_us - last_state_send_us) >= 400000) {
+    // Bounded initial 0x31 SetHapticsMode unlock retries (every 1s, max 4 times) when idle
+    if (!rx_0x31_seen && unlock_boot_retries_left > 0 && !dsp_is_haptics_active() &&
+        static_cast<int32_t>(now_us - last_state_send_us) >= 1000000) {
+        unlock_boot_retries_left--;
         state_send_pending = true;
         request_intr_tx();
     }
