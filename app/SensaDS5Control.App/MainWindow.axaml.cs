@@ -26,9 +26,9 @@ public partial class MainWindow : Window
     private bool _wasMicBtn;
     private volatile bool _syncMicButton = true;
     private bool _loadingUi = true;
-    private bool _userManuallyDisconnected;
     private bool _switchingUsbMode;
-    private bool _wasPicoPresent;
+    private bool _wasBtControllerReady;
+    private DateTime _ignoreBtReadyUntilUtc = DateTime.MinValue;
     private int _activeNavIndex;
 
     private static readonly IBrush DotGreen = new SolidColorBrush(Color.Parse("#22C55E"));
@@ -162,23 +162,14 @@ public partial class MainWindow : Window
         {
             var ports = await Task.Run(() => _platform.DiscoverPicoComPorts());
             var activePort = ports.FirstOrDefault();
-            bool present = activePort != null;
-
-            if (!present)
+            if (activePort == null)
             {
-                if (_wasPicoPresent)
-                {
-                    _wasPicoPresent = false;
-                    _userManuallyDisconnected = false; // Allow clean auto-connect on next plug-in
-                }
                 if (_pico.IsConnected || _pico.ActivePortName != null)
                 {
                     _pico.NotifyUsbRemoved();
                 }
                 return;
             }
-
-            _wasPicoPresent = true;
 
             if (_pico.IsConnected)
             {
@@ -190,10 +181,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (!_userManuallyDisconnected)
-            {
-                await _pico.ConnectAsync(activePort!, wakeController: false);
-            }
+            await _pico.ConnectAsync(activePort, wakeController: false);
         }
         catch { }
         finally
@@ -208,13 +196,32 @@ public partial class MainWindow : Window
 
         if (_pico.IsConnected)
         {
-            _userManuallyDisconnected = true;
-            _pico.Disconnect("Controller disconnected by user", disconnectController: true);
+            if (_wasBtControllerReady)
+            {
+                // Drop BT link cleanly while keeping Pico COM alive so powering controller back on auto-syncs immediately
+                _ignoreBtReadyUntilUtc = DateTime.UtcNow.AddMilliseconds(600);
+                _pico.DisconnectController();
+                _wasBtControllerReady = false;
+                StatusDot.Fill = DotAmber;
+                StatusText.Text = "Controller Disconnected";
+                SubStatusText.Text = "Press PS button on Sensa or click Reconnect Controller";
+                ConnectBtn.Content = "Reconnect Controller";
+                ConnectBtn.Classes.Remove("danger");
+                ConnectBtn.Classes.Add("accent");
+                DashControllerDiagram.ResetDisconnected();
+                TesterControllerDiagram.ResetDisconnected();
+            }
+            else
+            {
+                _ignoreBtReadyUntilUtc = DateTime.MinValue;
+                StatusText.Text = "Reconnecting Controller...";
+                SubStatusText.Text = "Paging bonded Sensa controller (or press PS button)...";
+                _pico.ReconnectController();
+            }
             return;
         }
 
-        _userManuallyDisconnected = false;
-        StatusText.Text = "Connecting to Pico...";
+        StatusText.Text = "Searching for Pico USB...";
         var ports = await Task.Run(() => _platform.DiscoverPicoComPorts());
         if (ports.Count > 0)
         {
@@ -234,17 +241,19 @@ public partial class MainWindow : Window
         {
             if (connected)
             {
-                ConnectBtn.Content = "Disconnect Controller";
-                ConnectBtn.Classes.Remove("accent");
-                ConnectBtn.Classes.Add("danger");
+                _wasBtControllerReady = false;
+                ConnectBtn.Content = "Reconnect Controller";
+                ConnectBtn.Classes.Remove("danger");
+                ConnectBtn.Classes.Add("accent");
                 StatusDot.Fill = DotAmber;
                 StatusText.Text = $"Pico Connected ({portOrError})";
-                SubStatusText.Text = "Waiting for Sensa Bluetooth handshake...";
+                SubStatusText.Text = "Checking Sensa Bluetooth connection...";
                 PortBadgeTxt.Text = $"Port: {portOrError}";
                 PushSavedProfileToPico();
             }
             else
             {
+                _wasBtControllerReady = false;
                 ConnectBtn.Content = "Connect";
                 ConnectBtn.Classes.Remove("danger");
                 ConnectBtn.Classes.Add("accent");
@@ -279,10 +288,13 @@ public partial class MainWindow : Window
 
     private void OnTelemetryReceived(TelemetrySample s)
     {
-        _mouse.Process(s, _platform);
+        if (s.BtControllerReady)
+        {
+            _mouse.Process(s, _platform);
+        }
 
-        bool micPressedEdge = _syncMicButton && s.MicMuteBtn && !_wasMicBtn;
-        _wasMicBtn = s.MicMuteBtn;
+        bool micPressedEdge = s.BtControllerReady && _syncMicButton && s.MicMuteBtn && !_wasMicBtn;
+        _wasMicBtn = s.BtControllerReady && s.MicMuteBtn;
 
         if (!micPressedEdge && Interlocked.Exchange(ref _uiTelemetryPending, 1) != 0)
         {
@@ -293,6 +305,30 @@ public partial class MainWindow : Window
         {
             Interlocked.Exchange(ref _uiTelemetryPending, 0);
             if (!_pico.IsConnected) return;
+
+            bool btNow = s.BtControllerReady && DateTime.UtcNow >= _ignoreBtReadyUntilUtc;
+            if (!s.BtControllerReady)
+            {
+                _ignoreBtReadyUntilUtc = DateTime.MinValue;
+            }
+            if (btNow && !_wasBtControllerReady)
+            {
+                PushSavedProfileToPico();
+            }
+            _wasBtControllerReady = btNow;
+
+            if (btNow)
+            {
+                ConnectBtn.Content = "Disconnect Controller";
+                ConnectBtn.Classes.Remove("accent");
+                ConnectBtn.Classes.Add("danger");
+            }
+            else
+            {
+                ConnectBtn.Content = "Reconnect Controller";
+                ConnectBtn.Classes.Remove("danger");
+                ConnectBtn.Classes.Add("accent");
+            }
 
             if (micPressedEdge)
             {
@@ -305,20 +341,36 @@ public partial class MainWindow : Window
             }
 
             string usbShort = s.UsbMode == 1 ? "Xbox 360" : "DualSense";
-            StatusDot.Fill = s.BtControllerReady ? DotGreen : DotAmber;
-            StatusText.Text = s.BtControllerReady ? $"Sensa Active ({usbShort})" : "Pico Ready — Turn on Sensa";
+            StatusDot.Fill = btNow ? DotGreen : DotAmber;
+            StatusText.Text = btNow ? $"Sensa Active ({usbShort})" : "Pico Ready — Turn on Sensa";
             PortBadgeTxt.Text = $"{_pico.ActivePortName ?? "USB"} • {usbShort}";
-            BatteryBadgeTxt.Text = s.FullMode0x31 ? $"Bat: {s.BatteryPct}%" : (s.BtControllerReady ? "Short 0x01" : "BT Idle");
+            BatteryBadgeTxt.Text = btNow ? (s.FullMode0x31 ? $"Bat: {s.BatteryPct}%" : "Short 0x01") : "BT Idle";
 
             DashBridgeInfo.Text = $"Bridge: Mode {s.Mode} | 0x36 tx={s.Tx0x36} | Gain {s.HapticGainPct}% | {usbShort}";
-            DashBatteryInfo.Text = s.FullMode0x31 ? $"Battery: {s.BatteryPct}% (charging={s.ChargingState})" : "Battery: (waiting for 0x31 full mode)";
-            DashReportMode.Text = s.FullMode0x31 ? "Input Mode: Full 0x31 (Gyro + Touchpad active)" : (s.BtControllerReady ? "Input Mode: Short 0x01" : "Bluetooth Controller Disconnected");
+            DashBatteryInfo.Text = btNow
+                ? (s.FullMode0x31 ? $"Battery: {s.BatteryPct}% (charging={s.ChargingState})" : "Battery: (waiting for 0x31 full mode)")
+                : "Battery: --";
+            DashReportMode.Text = btNow
+                ? (s.FullMode0x31 ? "Input Mode: Full 0x31 (Gyro + Touchpad active)" : "Input Mode: Short 0x01")
+                : "Bluetooth Controller Disconnected";
             UsbModeStatus.Text = s.UsbMode == 1
                 ? "Active USB Personality: Xbox 360 XInput Controller (1209:DB05)"
                 : "Active USB Personality: DualSense Wireless Controller (054C:0CE6)";
-            SubStatusText.Text = s.BtControllerReady
+            SubStatusText.Text = btNow
                 ? $"{(s.FullMode0x31 ? "Full 0x31" : "Short 0x01")} | tx0x36={s.Tx0x36} | Peak L={s.PeakHapticL:0.0}% R={s.PeakHapticR:0.0}%"
-                : "Press PS button on Sensa to reconnect wireless controller";
+                : "Press PS button on Sensa or click Reconnect Controller";
+
+            if (!btNow)
+            {
+                DashControllerDiagram.ResetDisconnected();
+                TesterControllerDiagram.ResetDisconnected();
+                HapticLBar.Value = 0;
+                HapticRBar.Value = 0;
+                L2Bar.Value = 0;
+                R2Bar.Value = 0;
+                ButtonsActiveTxt.Text = "Pressed: (controller sleeping)";
+                return;
+            }
 
             // Live Interactive Vector Controller Diagrams
             DashControllerDiagram.UpdateTelemetry(s, _settings.LedR, _settings.LedG, _settings.LedB, _settings.LedOverride);
@@ -576,7 +628,6 @@ public partial class MainWindow : Window
         }
 
         _switchingUsbMode = true;
-        _userManuallyDisconnected = false;
         BtnUsbDs5.IsEnabled = false;
         BtnUsbX360.IsEnabled = false;
 

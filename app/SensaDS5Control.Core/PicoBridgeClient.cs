@@ -238,6 +238,8 @@ public sealed class PicoBridgeClient : IDisposable
     public void SendUnlock(int mode) => SendCommand($"unlock {mode}");
     public void SetBtMon(bool on) => SendCommand($"btmon {(on ? 1 : 0)}");
     public void SetUsbMode(string mode) => SendCommand($"usbmode {mode}");
+    public void DisconnectController() => SendCommand("disconnect");
+    public void ReconnectController() => SendCommand("reconnect");
     public void EnterBootsel() => SendCommand("bootsel");
 
     public void Dispose() => Disconnect(reason: "Closing", disconnectController: false);
