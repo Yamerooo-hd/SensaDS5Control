@@ -353,7 +353,10 @@ public partial class MainWindow : Window
     private void OnTestRumbleLeftClick(object? s, RoutedEventArgs e) => _pico.TriggerTestPulse(0, 180, 400);
     private void OnTestRumbleRightClick(object? s, RoutedEventArgs e) => _pico.TriggerTestPulse(180, 0, 400);
 
-    private void OnImpulseSettingsChanged(object? sender, EventArgs e)
+    private void OnImpulseModeChanged(object? sender, SelectionChangedEventArgs e) => ApplyImpulseSettings();
+    private void OnImpulseStrengthChanged(object? sender, RangeBaseValueChangedEventArgs e) => ApplyImpulseSettings();
+
+    private void ApplyImpulseSettings()
     {
         if (_loadingUi) return;
         int mode = Math.Clamp(ImpulseModeCombo.SelectedIndex, 0, 2);

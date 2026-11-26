@@ -72,10 +72,10 @@
                 <TextBlock Classes="hdr" Text="Xbox 360 Impulse Triggers (Rumble → L2 / R2)" />
                 <TextBlock Classes="dim" Text="Turns incoming Xbox 360 / classic game rumble into L2 &amp; R2 trigger vibration (0x26). Applies whenever Adaptive Triggers are set to Follow Game." TextWrapping="Wrap" />
                 <WrapPanel Orientation="Horizontal">
-                  <ComboBox x:Name="ImpulseModeCombo" Width="225" SelectionChanged="OnImpulseSettingsChanged" Margin="0,0,10,6" />
+                  <ComboBox x:Name="ImpulseModeCombo" Width="225" SelectionChanged="OnImpulseModeChanged" Margin="0,0,10,6" />
                   <TextBlock Text="Impulse Strength:" VerticalAlignment="Center" Margin="0,0,8,6" />
                   <Slider x:Name="ImpulseStrengthSlider" Minimum="0" Maximum="100" Value="85" Width="170"
-                          ValueChanged="OnImpulseSettingsChanged" Margin="0,0,8,6" />
+                          ValueChanged="OnImpulseStrengthChanged" Margin="0,0,8,6" />
                   <TextBlock x:Name="ImpulseStrengthLabel" Text="85%" VerticalAlignment="Center" FontWeight="SemiBold" Width="42" Margin="0,0,10,6" />
                   <Button Content="Test Impulse Triggers" Click="OnTestImpulseTriggersClick" Margin="0,0,0,6" />
                 </WrapPanel>
