@@ -146,6 +146,8 @@ public sealed class PicoBridgeClient : IDisposable
     public void SetLedAuto() => SendCommand("led auto");
     public void SetMicLed(byte mode) => SendCommand($"micled {mode}");
     public void SetHapticGain(int pct) => SendCommand($"tune hgain {Math.Clamp(pct, 25, 255)}");
+    public void SetImpulseTriggers(int mode, int strengthPct) => SendCommand($"imptrig {Math.Clamp(mode, 0, 2)} {Math.Clamp(strengthPct, 0, 100)}");
+    public void TriggerImpulseTest(int pct = 85, int ms = 650) => SendCommand($"imptrigtest {Math.Clamp(pct, 10, 100)} {Math.Clamp(ms, 50, 3000)}");
     public void SetMode(string mode) => SendCommand($"mode {mode}");
     public void TriggerTestPulse(int r, int l, int ms) => SendCommand($"pulse {r} {l} {ms}");
     public void TriggerTestWave(string proto, int amp, int hz, int ms) => SendCommand($"test{proto} {amp} {hz} {ms}");

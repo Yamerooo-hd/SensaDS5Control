@@ -14,6 +14,9 @@ public sealed class AppSettings
 
     public int HapticGainPct { get; set; } = 150;
 
+    public int ImpulseTriggerMode { get; set; } = 1; // 0=Off, 1=Always, 2=WhenPulled
+    public int ImpulseTriggerStrengthPct { get; set; } = 85;
+
     public TriggerPresetKind LeftTriggerKind { get; set; } = TriggerPresetKind.AutoGame;
     public byte LeftStart { get; set; } = 40;
     public byte LeftEnd { get; set; } = 180;

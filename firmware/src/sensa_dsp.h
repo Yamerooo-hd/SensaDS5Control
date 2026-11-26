@@ -14,6 +14,7 @@ void dsp_trigger_test_wave(HapticMode proto, uint8_t amp, uint16_t freq_hz, uint
 
 // Called by sensa_bt when fetching current haptic synth & audio waveform blocks
 void dsp_get_synth_motors(uint8_t &right_out, uint8_t &left_out);
+bool dsp_has_active_test_rumble();
 bool dsp_take_haptic_block(int8_t out_block[64], HapticMode &override_proto);
 bool dsp_is_haptics_active();
 

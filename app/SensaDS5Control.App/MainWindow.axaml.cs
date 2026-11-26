@@ -60,6 +60,13 @@ public partial class MainWindow : Window
         };
         LeftTrigCombo.ItemsSource = items;
         RightTrigCombo.ItemsSource = items;
+
+        ImpulseModeCombo.ItemsSource = new[]
+        {
+            "Off (Normal Triggers)",
+            "Always (On Any Rumble)",
+            "Only While Trigger Pulled"
+        };
     }
 
     private void ApplySettingsToUi()
@@ -75,6 +82,10 @@ public partial class MainWindow : Window
 
         HapticGainSlider.Value = _settings.HapticGainPct;
         HapticGainLabel.Text = $"{_settings.HapticGainPct}%";
+
+        ImpulseModeCombo.SelectedIndex = Math.Clamp(_settings.ImpulseTriggerMode, 0, 2);
+        ImpulseStrengthSlider.Value = Math.Clamp(_settings.ImpulseTriggerStrengthPct, 0, 100);
+        ImpulseStrengthLabel.Text = $"{_settings.ImpulseTriggerStrengthPct}%";
 
         LedRSlider.Value = _settings.LedR;
         LedGSlider.Value = _settings.LedG;
@@ -149,6 +160,7 @@ public partial class MainWindow : Window
     private void PushSavedProfileToPico()
     {
         _pico.SetHapticGain(_settings.HapticGainPct);
+        _pico.SetImpulseTriggers(_settings.ImpulseTriggerMode, _settings.ImpulseTriggerStrengthPct);
         _pico.SetMicLed(_settings.MicLedMode);
         if (_settings.LedOverride) _pico.SetLed(_settings.LedR, _settings.LedG, _settings.LedB);
         _pico.SetTrigger("l", _settings.LeftTriggerKind, _settings.LeftStart, _settings.LeftEnd, _settings.LeftForce, _settings.LeftFreq);
@@ -340,6 +352,24 @@ public partial class MainWindow : Window
     private void OnTestDeepThumpClick(object? s, RoutedEventArgs e) => _pico.TriggerTestWave("36", 125, 55, 700);
     private void OnTestRumbleLeftClick(object? s, RoutedEventArgs e) => _pico.TriggerTestPulse(0, 180, 400);
     private void OnTestRumbleRightClick(object? s, RoutedEventArgs e) => _pico.TriggerTestPulse(180, 0, 400);
+
+    private void OnImpulseSettingsChanged(object? sender, EventArgs e)
+    {
+        if (_loadingUi) return;
+        int mode = Math.Clamp(ImpulseModeCombo.SelectedIndex, 0, 2);
+        int strength = Math.Clamp((int)Math.Round(ImpulseStrengthSlider.Value), 0, 100);
+        ImpulseStrengthLabel.Text = $"{strength}%";
+        _settings.ImpulseTriggerMode = mode;
+        _settings.ImpulseTriggerStrengthPct = strength;
+        _settings.Save();
+        _pico.SetImpulseTriggers(mode, strength);
+    }
+
+    private void OnTestImpulseTriggersClick(object? s, RoutedEventArgs e)
+    {
+        int pct = Math.Clamp(_settings.ImpulseTriggerStrengthPct, 25, 100);
+        _pico.TriggerImpulseTest(pct, 650);
+    }
 
     private void OnApplyLeftTriggerClick(object? s, RoutedEventArgs e)
     {

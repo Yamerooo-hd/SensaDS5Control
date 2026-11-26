@@ -109,6 +109,31 @@ void handle_command(char *line) {
             console_printf("[TRIG] side=%u mode=0x%02X p1=0x%02X p2=0x%02X p3=0x%02X\n",
                            side, d[0], d[1], d[2], d[3]);
         }
+    } else if (eq_ci(cmd, "imptrig") && argc >= 2) {
+        ImpulseTriggerMode m = g_dsp_config.impulse_mode;
+        if (eq_ci(tokens[1], "0") || eq_ci(tokens[1], "off")) m = ImpulseTriggerMode::Off;
+        else if (eq_ci(tokens[1], "1") || eq_ci(tokens[1], "always")) m = ImpulseTriggerMode::Always;
+        else if (eq_ci(tokens[1], "2") || eq_ci(tokens[1], "pulled")) m = ImpulseTriggerMode::WhenPulled;
+        else {
+            console_printf("[IMPTRIG] Unknown mode '%s' (use 0|off, 1|always, 2|pulled)\n", tokens[1]);
+            return;
+        }
+        g_dsp_config.impulse_mode = m;
+        if (argc >= 3) {
+            int s = atoi(tokens[2]);
+            g_dsp_config.impulse_strength_pct = static_cast<uint8_t>(s < 0 ? 0 : (s > 100 ? 100 : s));
+        }
+        bt_request_state_update();
+        console_printf("[IMPTRIG] mode=%u strength=%u%%\n",
+                       static_cast<unsigned>(g_dsp_config.impulse_mode),
+                       g_dsp_config.impulse_strength_pct);
+    } else if (eq_ci(cmd, "imptrigtest")) {
+        int pct = argc >= 2 ? atoi(tokens[1]) : 85;
+        int ms = argc >= 3 ? atoi(tokens[2]) : 600;
+        pct = pct < 5 ? 5 : (pct > 100 ? 100 : pct);
+        ms = ms < 50 ? 50 : (ms > 3000 ? 3000 : ms);
+        bt_trigger_test_impulse(static_cast<uint8_t>(pct), static_cast<uint32_t>(ms));
+        console_printf("[TEST] Impulse Triggers (0x26 L2+R2) %d%% for %d ms\n", pct, ms);
     } else if (eq_ci(cmd, "mode") && argc >= 2) {
         char const *m = tokens[1];
         if (eq_ci(m, "31")) g_haptic_mode = HapticMode::Mode31Synth;
@@ -267,6 +292,8 @@ void console_print_help() {
     console_printf("  led <r> <g> <b> | auto - RGB lightbar override / auto\n");
     console_printf("  micled <0|1|2>      - Mic Mute LED (0=off, 1=solid, 2=pulse)\n");
     console_printf("  trig <R|L|both> <auto|mode p0..p9> - Adaptive trigger override\n");
+    console_printf("  imptrig <off|always|pulled> [0..100] - Xbox 360 Impulse Triggers & strength %%\n");
+    console_printf("  imptrigtest [pct] [ms] - Pulse L2+R2 0x26 trigger vibration test\n");
     console_printf("  usbmode <ds5|x360>  - Switch USB identity & soft-reboot\n");
     console_printf("  tele <0|1> | btmon <0|1> | unlock <0..4> | dbg\n");
     console_printf("  pair | forget | disconnect | reboot | bootsel\n\n");

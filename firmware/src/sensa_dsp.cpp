@@ -50,6 +50,7 @@ uint32_t last_audio_rx_us = 0;
 uint32_t last_simfx_step_us = 0;
 
 // Manual test pulse / sine wave state
+bool test_pulse_active = false;
 uint8_t test_pulse_r = 0;
 uint8_t test_pulse_l = 0;
 uint32_t test_pulse_until_us = 0;
@@ -232,6 +233,8 @@ void dsp_trigger_test_rumble(uint8_t right, uint8_t left, uint32_t duration_ms) 
     test_pulse_r = right;
     test_pulse_l = left;
     test_pulse_until_us = time_us_32() + duration_ms * 1000u;
+    test_pulse_active = (right | left) != 0;
+    bt_request_state_update();
 }
 
 void dsp_trigger_test_wave(HapticMode proto, uint8_t amp, uint16_t freq_hz, uint32_t duration_ms) {
@@ -244,9 +247,14 @@ void dsp_trigger_test_wave(HapticMode proto, uint8_t amp, uint16_t freq_hz, uint
     last_wave_block_us = 0;
 }
 
+bool dsp_has_active_test_rumble() {
+    if (!test_pulse_active) return false;
+    return static_cast<int32_t>(time_us_32() - test_pulse_until_us) < 0;
+}
+
 void dsp_get_synth_motors(uint8_t &right_out, uint8_t &left_out) {
     uint32_t now_us = time_us_32();
-    if (static_cast<int32_t>(now_us - test_pulse_until_us) < 0) {
+    if (test_pulse_active && static_cast<int32_t>(now_us - test_pulse_until_us) < 0) {
         right_out = test_pulse_r;
         left_out = test_pulse_l;
         return;
@@ -330,6 +338,14 @@ void dsp_poll() {
         cur_peak_audio_r = static_cast<uint16_t>((cur_peak_audio_r * 7u) / 10u);
         cur_peak_haptic_l = static_cast<uint16_t>((cur_peak_haptic_l * 7u) / 10u);
         cur_peak_haptic_r = static_cast<uint16_t>((cur_peak_haptic_r * 7u) / 10u);
+    }
+
+    // Stop expired manual 0x31 classic rumble test cleanly
+    if (test_pulse_active && static_cast<int32_t>(now_us - test_pulse_until_us) >= 0) {
+        test_pulse_active = false;
+        test_pulse_r = 0;
+        test_pulse_l = 0;
+        bt_request_state_update();
     }
 
     // Generate synthetic pure 0x32 / 0x36 / 0x39 sine block every 10.67 ms when requested

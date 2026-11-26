@@ -47,6 +47,12 @@ inline char const *haptic_mode_name(HapticMode mode) {
     }
 }
 
+enum class ImpulseTriggerMode : uint8_t {
+    Off = 0,         // Disable synthesized impulse triggers (normal L2/R2 or manual presets)
+    Always = 1,      // Game rumble drives L2/R2 0x26 trigger vibration whenever rumbling
+    WhenPulled = 2,  // Only drives L2/R2 0x26 trigger vibration while that trigger is squeezed
+};
+
 struct DspConfig {
     // Tuned defaults baked from live-tuning session (Control Resonant):
     // floor=8% eliminates idle buzz, gain=3.0x, min=10 (overcomes stiction without buzz),
@@ -59,6 +65,8 @@ struct DspConfig {
     bool include_speaker_bass = true;  // Fold ch0/ch1 sub-bass transients subtly when ch3/4 present or strong explosion
     uint16_t speaker_bass_pct = 20;    // 0..100% weight of low-freq speaker energy above 25% threshold
     uint8_t haptic_gain_pct = 150;     // PCM waveform scale for 0x36/0x39 (ds5-untethered default 1.5x + tanh)
+    ImpulseTriggerMode impulse_mode = ImpulseTriggerMode::Always; // Xbox 360-style L2/R2 impulse triggers from rumble
+    uint8_t impulse_strength_pct = 85;                            // 0..100% intensity for synthesized 0x26 triggers
 };
 
 struct HostOutputState {

@@ -56,13 +56,20 @@ public static class TriggerPresets
 
             case TriggerPresetKind.Vibration:
             {
-                // Vibrating / rapid-fire trigger (mode 0x26)
+                // Vibrating / rapid-fire trigger (mode 0x26, all enabled zones packed 3-bit across b[3..6])
                 int sp = Math.Clamp(s * 9 / 255, 0, 9);
                 int fp = Math.Clamp(f * 7 / 255, 1, 7);
+                uint zoneMask = (0x3FFu << sp) & 0x3FFu;
+                uint packed30 = 0;
+                for (int z = 0; z < 10; z++)
+                    packed30 |= ((uint)(fp & 0x07)) << (z * 3);
                 b[0] = 0x26;
-                b[1] = (byte)(0xFF << sp);
-                b[2] = (byte)(0x03 & (0x3FF >> Math.Max(0, 8 - sp)));
-                b[3] = (byte)((fp & 0x07) | ((fp & 0x07) << 3));
+                b[1] = (byte)(zoneMask & 0xFF);
+                b[2] = (byte)((zoneMask >> 8) & 0x03);
+                b[3] = (byte)(packed30 & 0xFF);
+                b[4] = (byte)((packed30 >> 8) & 0xFF);
+                b[5] = (byte)((packed30 >> 16) & 0xFF);
+                b[6] = (byte)((packed30 >> 24) & 0xFF);
                 b[9] = Math.Clamp(frequencyHz, (byte)5, (byte)60);
                 break;
             }

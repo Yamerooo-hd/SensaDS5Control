@@ -54,7 +54,17 @@ bool intr_can_send_req = false;
 bool ctrl_can_send_req = false;
 
 bool state_send_pending = false;
+bool deferred_state_flush = false;
 uint32_t last_state_send_us = 0;
+
+bool impulse_test_active = false;
+uint8_t impulse_test_pct = 85;
+uint32_t impulse_test_until_us = 0;
+bool prev_imp_l_active = false;
+bool prev_imp_r_active = false;
+uint8_t last_imp_sent_l = 0;
+uint8_t last_imp_sent_r = 0;
+uint32_t last_dynamic_check_us = 0;
 
 bool audio_block_pending = false;
 int8_t pending_audio_block[64]{};
@@ -336,6 +346,72 @@ void sdp_callback(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16
     }
 }
 
+void write_ds5_vibration_trig(uint8_t dst[11], uint8_t pct) {
+    std::memset(dst, 0, 11);
+    if (pct == 0) {
+        dst[0] = 0x05; // Reset / Off
+        return;
+    }
+    uint8_t fp = static_cast<uint8_t>(std::clamp<int>((pct * 7 + 99) / 100, 1, 7));
+    uint8_t freq = static_cast<uint8_t>(18 + (pct * 38) / 100); // 18..56 Hz Xbox-style trigger pulse
+    uint32_t packed30 = 0;
+    for (int z = 0; z < 10; ++z) {
+        packed30 |= (static_cast<uint32_t>(fp & 0x07u) << (z * 3));
+    }
+    dst[0] = 0x26; // Official DualSense Vibration trigger mode
+    dst[1] = 0xFF; // Zones 0..7 enabled
+    dst[2] = 0x03; // Zones 8..9 enabled
+    dst[3] = static_cast<uint8_t>(packed30 & 0xFFu);
+    dst[4] = static_cast<uint8_t>((packed30 >> 8) & 0xFFu);
+    dst[5] = static_cast<uint8_t>((packed30 >> 16) & 0xFFu);
+    dst[6] = static_cast<uint8_t>((packed30 >> 24) & 0xFFu);
+    dst[9] = freq;
+}
+
+void compute_dynamic_impulse_pct(uint8_t &out_l_pct, uint8_t &out_r_pct) {
+    uint32_t now_us = time_us_32();
+    if (impulse_test_active && static_cast<int32_t>(now_us - impulse_test_until_us) < 0) {
+        out_l_pct = impulse_test_pct;
+        out_r_pct = impulse_test_pct;
+        return;
+    }
+
+    if (g_dsp_config.impulse_mode == ImpulseTriggerMode::Off ||
+        g_dsp_config.impulse_strength_pct == 0 ||
+        !g_host_output.valid) {
+        out_l_pct = 0;
+        out_r_pct = 0;
+        return;
+    }
+
+    uint8_t gr = g_host_output.payload[2];
+    uint8_t gl = g_host_output.payload[3];
+    if ((gr | gl) == 0) {
+        out_l_pct = 0;
+        out_r_pct = 0;
+        return;
+    }
+
+    // Blend XInput L (low-freq) & R (high-freq) motors so games using only 1 motor still pulse both triggers naturally
+    uint8_t raw_l = std::max<uint8_t>(gl, static_cast<uint8_t>((gr * 3u) / 4u));
+    uint8_t raw_r = std::max<uint8_t>(gr, static_cast<uint8_t>((gl * 3u) / 4u));
+
+    auto scale_side = [](uint8_t raw, uint8_t pull_depth) -> uint8_t {
+        if (raw < 10) return 0;
+        uint32_t pct = (static_cast<uint32_t>(raw) * 100u + 127u) / 255u;
+        pct = (pct * g_dsp_config.impulse_strength_pct + 50u) / 100u;
+        if (g_dsp_config.impulse_mode == ImpulseTriggerMode::WhenPulled) {
+            if (pull_depth < 20) return 0;
+            uint32_t pull_scale = 35u + ((static_cast<uint32_t>(pull_depth - 20u) * 65u) / 235u);
+            pct = (pct * pull_scale + 50u) / 100u;
+        }
+        return static_cast<uint8_t>(std::clamp<uint32_t>(pct, 12u, 100u));
+    };
+
+    out_l_pct = scale_side(raw_l, last_bt_body[4]);
+    out_r_pct = scale_side(raw_r, last_bt_body[5]);
+}
+
 // Populate common 47-byte/63-byte DualSense output block shared by 0x31 and 0x90 subpacket in 0x36/0x39
 void fill_state_block(uint8_t p[63], bool allow_synth_motors, bool haptics_audio_mode) {
     if (g_host_output.valid && g_host_output.len > 0) {
@@ -385,15 +461,47 @@ void fill_state_block(uint8_t p[63], bool allow_synth_motors, bool haptics_audio
     p[1] |= 0x01u; // MicMuteLedControlEnable
     p[8] = mic_led_override_mode;
 
+    uint8_t imp_l_pct = 0, imp_r_pct = 0;
+    compute_dynamic_impulse_pct(imp_l_pct, imp_r_pct);
+    last_imp_sent_l = imp_l_pct;
+    last_imp_sent_r = imp_r_pct;
+
     if (trig_r_override_active) {
         p[0] |= 0x04u;
         std::memcpy(p + 10, trig_r_override, 11);
         g_telemetry.last_r2_mode = trig_r_override[0];
+        prev_imp_r_active = false;
+    } else if (g_usb_mode != UsbMode::DualSense || (p[0] & 0x04u) == 0) {
+        if (imp_r_pct > 0) {
+            p[0] |= 0x04u;
+            write_ds5_vibration_trig(p + 10, imp_r_pct);
+            g_telemetry.last_r2_mode = 0x26;
+            prev_imp_r_active = true;
+        } else if (prev_imp_r_active) {
+            p[0] |= 0x04u;
+            write_ds5_vibration_trig(p + 10, 0);
+            g_telemetry.last_r2_mode = 0x05;
+            prev_imp_r_active = false;
+        }
     }
+
     if (trig_l_override_active) {
         p[0] |= 0x08u;
         std::memcpy(p + 21, trig_l_override, 11);
         g_telemetry.last_l2_mode = trig_l_override[0];
+        prev_imp_l_active = false;
+    } else if (g_usb_mode != UsbMode::DualSense || (p[0] & 0x08u) == 0) {
+        if (imp_l_pct > 0) {
+            p[0] |= 0x08u;
+            write_ds5_vibration_trig(p + 21, imp_l_pct);
+            g_telemetry.last_l2_mode = 0x26;
+            prev_imp_l_active = true;
+        } else if (prev_imp_l_active) {
+            p[0] |= 0x08u;
+            write_ds5_vibration_trig(p + 21, 0);
+            g_telemetry.last_l2_mode = 0x05;
+            prev_imp_l_active = false;
+        }
     }
 
     if (led_override_active) {
@@ -515,6 +623,12 @@ void reset_session_state() {
     ctrl_can_send_req = false;
     audio_block_pending = false;
     state_send_pending = false;
+    deferred_state_flush = false;
+    impulse_test_active = false;
+    prev_imp_l_active = false;
+    prev_imp_r_active = false;
+    last_imp_sent_l = 0;
+    last_imp_sent_r = 0;
     outbound_connecting = false;
     sdp_stage = SdpStage::Idle;
     sdp_auto_pending = false;
@@ -676,12 +790,14 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
                 }
             } else if (state_send_pending) {
                 state_send_pending = false;
+                deferred_state_flush = false;
                 uint8_t pkt548[548]{};
-                bool synth = (g_haptic_mode == HapticMode::Mode31Synth);
+                bool test_rumble_now = dsp_has_active_test_rumble();
+                bool synth = (g_haptic_mode == HapticMode::Mode31Synth) || test_rumble_now;
                 bool haptics_mode_0x31 = !rx_0x31_seen ||
                                          (g_haptic_mode == HapticMode::Mode31Hybrid32) ||
                                          ((g_haptic_mode == HapticMode::Mode36Haptics || g_haptic_mode == HapticMode::Mode39Probe) &&
-                                          (dsp_is_haptics_active() || g_telemetry.usb_speaker_streaming));
+                                          dsp_is_haptics_active() && !test_rumble_now);
                 build_0x31_packet(pkt548, synth, haptics_mode_0x31);
                 uint16_t tx_len = send_547_once ? 548 : 79;
                 send_547_once = false;
@@ -1033,18 +1149,33 @@ void bt_notify_host_output() {
     // While 0x36/0x39 audio-haptics is actively streaming, its 0x90 subpacket already carries
     // triggers/LEDs every 10.67 ms — flooding 0x31 at 450 Hz resets/kills the 0x36 haptic stream!
     if ((g_haptic_mode == HapticMode::Mode36Haptics || g_haptic_mode == HapticMode::Mode39Probe) &&
-        dsp_is_haptics_active()) {
+        dsp_is_haptics_active() && !dsp_has_active_test_rumble()) {
         return;
     }
-    // Even when idle/triggers-only, cap 0x31 rate so L2CAP never floods
-    // Always let zero/stop updates in Xbox modes flush cleanly
+    // Cap 0x31 rate so L2CAP never floods, but defer instead of dropping stop/state packets!
     uint32_t now_us = time_us_32();
     uint32_t min_gap_us = (g_usb_mode != UsbMode::DualSense) ? 8000u : 20000u;
     if (!led_override_active && static_cast<int32_t>(now_us - last_state_send_us) < static_cast<int32_t>(min_gap_us)) {
+        deferred_state_flush = true;
         return;
     }
+    deferred_state_flush = false;
     state_send_pending = true;
     request_intr_tx();
+}
+
+void bt_request_state_update() {
+    if (!hid_intr_ready) return;
+    deferred_state_flush = false;
+    state_send_pending = true;
+    request_intr_tx();
+}
+
+void bt_trigger_test_impulse(uint8_t pct, uint32_t duration_ms) {
+    impulse_test_pct = static_cast<uint8_t>(std::clamp<int>(pct, 5, 100));
+    impulse_test_until_us = time_us_32() + duration_ms * 1000u;
+    impulse_test_active = true;
+    bt_request_state_update();
 }
 
 void bt_submit_haptic_waveform(int8_t const block[64], HapticMode proto) {
@@ -1267,6 +1398,36 @@ void bt_poll() {
         request_intr_tx();
     }
 
+    // Reset Session state clears these too — make sure reset_session_state keeps deferred/impulse clean
+    if (impulse_test_active && static_cast<int32_t>(now_us - impulse_test_until_us) >= 0) {
+        impulse_test_active = false;
+        bt_request_state_update();
+    }
+
+    // Flush any rate-limited USB 0x02 / Xbox rumble update once cooldown has passed
+    uint32_t min_gap_us = (g_usb_mode != UsbMode::DualSense) ? 8000u : 20000u;
+    if (deferred_state_flush && static_cast<int32_t>(now_us - last_state_send_us) >= static_cast<int32_t>(min_gap_us)) {
+        deferred_state_flush = false;
+        state_send_pending = true;
+        request_intr_tx();
+    }
+
+    // Keep manual 0x31 classic rumble / impulse test alive and update WhenPulled dynamic triggers smoothly
+    if (static_cast<int32_t>(now_us - last_dynamic_check_us) >= 25000) {
+        last_dynamic_check_us = now_us;
+        uint8_t imp_l = 0, imp_r = 0;
+        compute_dynamic_impulse_pct(imp_l, imp_r);
+        int dl = static_cast<int>(imp_l) - static_cast<int>(last_imp_sent_l);
+        int dr = static_cast<int>(imp_r) - static_cast<int>(last_imp_sent_r);
+        bool imp_edge = (imp_l == 0) != (last_imp_sent_l == 0) || (imp_r == 0) != (last_imp_sent_r == 0);
+        bool imp_changed = imp_edge || (dl < -7 || dl > 7) || (dr < -7 || dr > 7);
+
+        if (dsp_has_active_test_rumble() || impulse_test_active || imp_changed) {
+            state_send_pending = true;
+            request_intr_tx();
+        }
+    }
+
     // Periodic 0x31 update at ~100 Hz while rumble active (or hybrid trigger updates)
     uint32_t interval_us = (g_haptic_mode == HapticMode::Mode31Synth) ? 10000u : 50000u;
     if (static_cast<int32_t>(now_us - last_state_send_us) >= static_cast<int32_t>(interval_us)) {
@@ -1298,7 +1459,7 @@ void bt_poll() {
         uint16_t t1y = static_cast<uint16_t>((b[38] >> 4) | (b[39] << 4));
         uint8_t bat = std::min<uint8_t>(b[52] & 0x0Fu, 10) * 10;
         uint8_t chg = (b[52] >> 4) & 0x0Fu;
-        console_printf("TELE,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%u,%u,%u\n",
+        console_printf("TELE,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%u,%u,%u,%u,%u\n",
                        rx_0x31_seen ? 1u : 0u,
                        b[0], b[1], b[2], b[3], b[4], b[5],
                        b[7], b[8], b[9], b[10],
@@ -1311,7 +1472,9 @@ void bt_poll() {
                        static_cast<unsigned long>(g_telemetry.bt_0x36_tx_count),
                        g_dsp_config.haptic_gain_pct,
                        mic_led_override_mode,
-                       static_cast<unsigned>(g_usb_mode));
+                       static_cast<unsigned>(g_usb_mode),
+                       static_cast<unsigned>(g_dsp_config.impulse_mode),
+                       g_dsp_config.impulse_strength_pct);
     }
 }
 
