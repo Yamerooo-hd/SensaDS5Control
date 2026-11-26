@@ -17,6 +17,10 @@ public partial class MainWindow : Window
     private readonly MouseMapper _mouse = new();
     private readonly AppSettings _settings;
     private readonly StringBuilder _logSb = new();
+    private readonly object _logLock = new();
+    private volatile bool _logDirty;
+    private int _uiTelemetryPending;
+    private readonly DispatcherTimer _logFlushTimer;
     private bool _wasMicBtn;
     private volatile bool _syncMicButton = true;
     private bool _loadingUi = true;
@@ -28,6 +32,10 @@ public partial class MainWindow : Window
         PopulateTriggerCombos();
         ApplySettingsToUi();
         _loadingUi = false;
+
+        _logFlushTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+        _logFlushTimer.Tick += (_, _) => FlushConsoleLogIfDirty();
+        _logFlushTimer.Start();
 
         _pico.ConnectionChanged += OnPicoConnectionChanged;
         _pico.TelemetryReceived += OnTelemetryReceived;
@@ -154,8 +162,14 @@ public partial class MainWindow : Window
         bool micPressedEdge = _syncMicButton && s.MicMuteBtn && !_wasMicBtn;
         _wasMicBtn = s.MicMuteBtn;
 
+        if (!micPressedEdge && Interlocked.Exchange(ref _uiTelemetryPending, 1) != 0)
+        {
+            return;
+        }
+
         Dispatcher.UIThread.Post(() =>
         {
+            Interlocked.Exchange(ref _uiTelemetryPending, 0);
             if (micPressedEdge)
             {
                 bool nextMute = !_platform.GetSystemMicMuted();
@@ -223,13 +237,26 @@ public partial class MainWindow : Window
 
     private void OnLogReceived(string line)
     {
-        Dispatcher.UIThread.Post(() =>
+        lock (_logLock)
         {
             _logSb.AppendLine(line);
-            if (_logSb.Length > 16000) _logSb.Remove(0, 6000);
-            ConsoleLogBox.Text = _logSb.ToString();
-            ConsoleLogBox.CaretIndex = ConsoleLogBox.Text?.Length ?? 0;
-        });
+            if (_logSb.Length > 12000) _logSb.Remove(0, _logSb.Length - 8000);
+            _logDirty = true;
+        }
+    }
+
+    private void FlushConsoleLogIfDirty()
+    {
+        if (!_logDirty) return;
+        string snap;
+        lock (_logLock)
+        {
+            if (!_logDirty) return;
+            _logDirty = false;
+            snap = _logSb.ToString();
+        }
+        ConsoleLogBox.Text = snap;
+        ConsoleLogBox.CaretIndex = snap.Length;
     }
 
     private void OnQuickTouchMouseClick(object? sender, RoutedEventArgs e)
@@ -399,16 +426,21 @@ public partial class MainWindow : Window
             var uf2 = await GitHubUpdater.DownloadLatestFirmwareBytesAsync(_settings.GitHubToken, CancellationToken.None);
             if (uf2 == null || uf2.Length < 4096)
             {
-                UpdaterStatusTxt.Text = "No .uf2 found (if repo is Private, paste your GitHub token in Console & Updates).";
+                const string errMsg = "No .uf2 found (if repo is Private, paste your GitHub token in Console & Updates).";
+                UpdaterStatusTxt.Text = errMsg;
+                SubStatusText.Text = errMsg;
                 return;
             }
             UpdaterStatusTxt.Text = "Rebooting Pico into BOOTSEL and flashing...";
+            SubStatusText.Text = UpdaterStatusTxt.Text;
             var msg = await _platform.FlashUf2ToPicoAsync(uf2, () => _pico.EnterBootsel(), CancellationToken.None);
             UpdaterStatusTxt.Text = msg;
+            SubStatusText.Text = msg;
         }
         catch (Exception ex)
         {
             UpdaterStatusTxt.Text = $"Update failed: {ex.Message}";
+            SubStatusText.Text = UpdaterStatusTxt.Text;
         }
     }
 
@@ -429,6 +461,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _logFlushTimer.Stop();
         _pico.Dispose();
         base.OnClosed(e);
     }

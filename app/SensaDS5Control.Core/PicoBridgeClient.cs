@@ -62,6 +62,7 @@ public sealed class PicoBridgeClient : IDisposable
         {
             if (reason == null)
             {
+                try { if (sp.IsOpen) SendRaw(sp, "btmon 0"); } catch { }
                 try { if (sp.IsOpen) SendRaw(sp, "tele 0"); } catch { }
             }
             try { sp.Close(); } catch { }

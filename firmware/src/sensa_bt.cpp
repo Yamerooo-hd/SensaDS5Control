@@ -75,8 +75,9 @@ bool btmon_enabled = false;
 bool tele_enabled = false;
 uint32_t last_tele_us = 0;
 uint8_t last_bt_body[63]{};
-uint8_t last_mon_raw[66]{};
+uint8_t last_mon_raw[75]{};
 uint16_t last_mon_len = 0;
+uint32_t last_mon_us = 0;
 
 bool send_547_once = false;
 
@@ -564,31 +565,39 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
             }
             if (btmon_enabled) {
                 uint16_t mlen = std::min<uint16_t>(size, sizeof(last_mon_raw));
+                uint32_t now_mon = time_us_32();
                 bool diff = (mlen != last_mon_len);
                 if (!diff) {
-                    // Check button/vendor/tail bytes (skip seq/IMU/timestamp jitter)
+                    // Check button/vendor/tail bytes (skip seq, sticks, IMU, touchpad, and timestamp[50..54])
                     if (packet[1] == 0x01) {
                         for (uint16_t i = 6; i < mlen && i <= 10; ++i) {
                             if (i != 8 && packet[i] != last_mon_raw[i]) { diff = true; break; }
                         }
                     } else if (packet[1] == 0x31) {
-                        for (uint16_t i = 10; i <= 13 && i < mlen; ++i) {
+                        for (uint16_t i = 9; i <= 15 && i < mlen; ++i) {
                             if (packet[i] != last_mon_raw[i]) { diff = true; break; }
                         }
-                        for (uint16_t i = 45; i < mlen && i < 66; ++i) {
+                        for (uint16_t i = 45; i <= 49 && i < mlen && !diff; ++i) {
+                            if (packet[i] != last_mon_raw[i]) { diff = true; break; }
+                        }
+                        for (uint16_t i = 55; i < mlen && !diff; ++i) {
                             if (packet[i] != last_mon_raw[i]) { diff = true; break; }
                         }
                     }
                 }
-                if (diff) {
+                if (diff && (last_mon_len == 0 || static_cast<int32_t>(now_mon - last_mon_us) >= 25000)) {
                     std::memcpy(last_mon_raw, packet, mlen);
                     last_mon_len = mlen;
-                    console_printf("[MON] len=%u id=0x%02X:", size, packet[1]);
-                    uint16_t pmax = std::min<uint16_t>(mlen, 24);
-                    for (uint16_t i = 2; i < pmax; ++i) console_printf(" %02X", packet[i]);
-                    if (mlen > 50) {
-                        console_printf(" | tail:");
-                        for (uint16_t i = 50; i < mlen && i < 66; ++i) console_printf(" %02X", packet[i]);
+                    last_mon_us = now_mon;
+                    console_printf("[MON] len=%u id=0x%02X b9..15:", size, packet[1]);
+                    for (uint16_t i = 9; i <= 15 && i < mlen; ++i) console_printf(" %02X", packet[i]);
+                    if (mlen > 45) {
+                        console_printf(" | t45..49:");
+                        for (uint16_t i = 45; i <= 49 && i < mlen; ++i) console_printf(" %02X", packet[i]);
+                    }
+                    if (mlen > 55) {
+                        console_printf(" | t55+:");
+                        for (uint16_t i = 55; i < mlen; ++i) console_printf(" %02X", packet[i]);
                     }
                     console_printf("\n");
                 }
