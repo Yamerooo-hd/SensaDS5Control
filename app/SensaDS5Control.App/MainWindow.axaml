@@ -257,7 +257,7 @@
                   <Button Content="Mic LED: Pulse" Click="OnMicLedPulseClick" />
                   <Button x:Name="MicMuteTabBtn" Content="Toggle Windows Mic Mute" Click="OnToggleMicMuteClick" />
                 </StackPanel>
-                <CheckBox x:Name="SyncMicBtnChk" Content="Sync controller physical Mic Mute button with Windows Mic + LED" IsChecked="True" />
+                <CheckBox x:Name="SyncMicBtnChk" Content="Sync controller physical Mic Mute button with Windows Mic + LED" IsChecked="True" IsCheckedChanged="OnSyncMicChanged" />
               </StackPanel>
             </Border>
           </StackPanel>

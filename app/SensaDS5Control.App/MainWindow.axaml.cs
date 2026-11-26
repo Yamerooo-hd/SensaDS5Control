@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly AppSettings _settings;
     private readonly StringBuilder _logSb = new();
     private bool _wasMicBtn;
+    private volatile bool _syncMicButton = true;
     private bool _loadingUi = true;
 
     public MainWindow()
@@ -85,6 +86,7 @@ public partial class MainWindow : Window
         RFreqSlider.Value = _settings.RightFreq;
 
         SyncMicBtnChk.IsChecked = _settings.SyncControllerMicButton;
+        _syncMicButton = _settings.SyncControllerMicButton;
         TokenBox.Text = _settings.GitHubToken;
 
         _mouse.TouchpadMouseEnabled = _settings.TouchpadMouse;
@@ -123,13 +125,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnPicoConnectionChanged(bool connected, string? port)
+    private void OnPicoConnectionChanged(bool connected, string? portOrError)
     {
         Dispatcher.UIThread.Post(() =>
         {
             ConnectBtn.Content = connected ? "Disconnect" : "Connect";
-            StatusText.Text = connected ? $"Connected on {port}" : "Disconnected";
-            SubStatusText.Text = connected ? "Streaming 30 Hz live telemetry" : "Plug Pico 2 W into USB and click Connect";
+            StatusText.Text = connected ? $"Connected on {portOrError}" : "Disconnected";
+            SubStatusText.Text = connected
+                ? "Streaming 30 Hz live telemetry"
+                : (string.IsNullOrEmpty(portOrError) ? "Plug Pico 2 W into USB and click Connect" : portOrError);
             if (connected) PushSavedProfileToPico();
         });
     }
@@ -147,19 +151,20 @@ public partial class MainWindow : Window
     {
         _mouse.Process(s, _platform);
 
-        if (SyncMicBtnChk.IsChecked == true && s.MicMuteBtn && !_wasMicBtn)
-        {
-            bool nextMute = !_platform.GetSystemMicMuted();
-            _platform.SetSystemMicMuted(nextMute);
-            _settings.MicLedMode = (byte)(nextMute ? 1 : 0);
-            _settings.Save();
-            _pico.SetMicLed(_settings.MicLedMode);
-            Dispatcher.UIThread.Post(UpdateMicButtonText);
-        }
+        bool micPressedEdge = _syncMicButton && s.MicMuteBtn && !_wasMicBtn;
         _wasMicBtn = s.MicMuteBtn;
 
         Dispatcher.UIThread.Post(() =>
         {
+            if (micPressedEdge)
+            {
+                bool nextMute = !_platform.GetSystemMicMuted();
+                _platform.SetSystemMicMuted(nextMute);
+                _settings.MicLedMode = (byte)(nextMute ? 1 : 0);
+                _settings.Save();
+                _pico.SetMicLed(_settings.MicLedMode);
+                UpdateMicButtonText();
+            }
             DashBridgeInfo.Text = $"Bridge: Mode {s.Mode} | 0x36 tx={s.Tx0x36} | Haptic Gain {s.HapticGainPct}%";
             DashBatteryInfo.Text = s.FullMode0x31 ? $"Battery: {s.BatteryPct}% (charging={s.ChargingState})" : "Battery: (waiting for 0x31 full mode)";
             DashReportMode.Text = s.FullMode0x31 ? "Input Mode: Full 0x31 (Gyro + Touchpad active)" : "Input Mode: Short 0x01 (Sticks/Buttons/Triggers)";
@@ -267,6 +272,14 @@ public partial class MainWindow : Window
         _settings.Save();
         _pico.SetMicLed(_settings.MicLedMode);
         UpdateMicButtonText();
+    }
+
+    private void OnSyncMicChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_loadingUi) return;
+        _syncMicButton = SyncMicBtnChk.IsChecked == true;
+        _settings.SyncControllerMicButton = _syncMicButton;
+        _settings.Save();
     }
 
     private void UpdateMicButtonText()

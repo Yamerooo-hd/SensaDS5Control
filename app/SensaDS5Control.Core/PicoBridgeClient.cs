@@ -24,6 +24,7 @@ public sealed class PicoBridgeClient : IDisposable
         {
             var sp = new SerialPort(portName, 115200, Parity.None, 8, StopBits.One)
             {
+                Handshake = Handshake.None,
                 DtrEnable = true,
                 RtsEnable = true,
                 ReadTimeout = 200,
@@ -32,6 +33,8 @@ public sealed class PicoBridgeClient : IDisposable
                 NewLine = "\n"
             };
             sp.Open();
+            sp.DtrEnable = true;
+            sp.RtsEnable = true;
             _port = sp;
             ActivePortName = portName;
             _rxCts = new CancellationTokenSource();
@@ -42,13 +45,14 @@ public sealed class PicoBridgeClient : IDisposable
         }
         catch (Exception ex)
         {
-            LogLineReceived?.Invoke($"[APP] Connect failed on {portName}: {ex.Message}");
-            Disconnect();
+            var err = $"Connect failed on {portName}: {ex.Message}";
+            LogLineReceived?.Invoke($"[APP] {err}");
+            Disconnect(err);
             return false;
         }
     }
 
-    public void Disconnect()
+    public void Disconnect(string? reason = null)
     {
         try { _rxCts?.Cancel(); } catch { }
         var sp = _port;
@@ -56,11 +60,14 @@ public sealed class PicoBridgeClient : IDisposable
         ActivePortName = null;
         if (sp != null)
         {
-            try { if (sp.IsOpen) SendRaw(sp, "tele 0"); } catch { }
+            if (reason == null)
+            {
+                try { if (sp.IsOpen) SendRaw(sp, "tele 0"); } catch { }
+            }
             try { sp.Close(); } catch { }
             try { sp.Dispose(); } catch { }
         }
-        ConnectionChanged?.Invoke(false, null);
+        ConnectionChanged?.Invoke(false, reason);
     }
 
     public void SendCommand(string cmd)
@@ -106,11 +113,12 @@ public sealed class PicoBridgeClient : IDisposable
                         if (line.Length == 0) continue;
                         if (TelemetrySample.TryParse(line, out var sample))
                         {
-                            TelemetryReceived?.Invoke(sample);
+                            try { TelemetryReceived?.Invoke(sample); }
+                            catch (Exception ex) { LogLineReceived?.Invoke($"[APP] Telemetry error: {ex.Message}"); }
                         }
                         else
                         {
-                            LogLineReceived?.Invoke(line);
+                            try { LogLineReceived?.Invoke(line); } catch { }
                         }
                     }
                     else if (sb.Length < 512)
@@ -120,11 +128,13 @@ public sealed class PicoBridgeClient : IDisposable
                 }
             }
             catch (TimeoutException) { }
-            catch (Exception)
+            catch (Exception ex)
             {
                 if (!ct.IsCancellationRequested)
                 {
-                    Disconnect();
+                    var err = $"Serial read error: {ex.Message}";
+                    try { LogLineReceived?.Invoke($"[APP] {err}"); } catch { }
+                    Disconnect(err);
                 }
                 break;
             }
