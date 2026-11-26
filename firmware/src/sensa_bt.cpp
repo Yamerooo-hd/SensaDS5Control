@@ -577,9 +577,8 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
                         for (uint16_t i = 9; i <= 15 && i < mlen; ++i) {
                             if (packet[i] != last_mon_raw[i]) { diff = true; break; }
                         }
-                        for (uint16_t i = 45; i <= 49 && i < mlen && !diff; ++i) {
-                            if (packet[i] != last_mon_raw[i]) { diff = true; break; }
-                        }
+                        if (!diff && mlen > 45 && packet[45] != last_mon_raw[45]) diff = true;
+                        if (!diff && mlen > 49 && packet[49] != last_mon_raw[49]) diff = true;
                         for (uint16_t i = 55; i < mlen && !diff; ++i) {
                             if (packet[i] != last_mon_raw[i]) { diff = true; break; }
                         }
@@ -1037,9 +1036,11 @@ void bt_notify_host_output() {
         dsp_is_haptics_active()) {
         return;
     }
-    // Even when idle/triggers-only, cap 0x31 rate to <= 50 Hz (20 ms) so L2CAP never floods
+    // Even when idle/triggers-only, cap 0x31 rate so L2CAP never floods
+    // Always let zero/stop updates in Xbox modes flush cleanly
     uint32_t now_us = time_us_32();
-    if (!led_override_active && static_cast<int32_t>(now_us - last_state_send_us) < 20000) {
+    uint32_t min_gap_us = (g_usb_mode != UsbMode::DualSense) ? 8000u : 20000u;
+    if (!led_override_active && static_cast<int32_t>(now_us - last_state_send_us) < static_cast<int32_t>(min_gap_us)) {
         return;
     }
     state_send_pending = true;
@@ -1297,7 +1298,7 @@ void bt_poll() {
         uint16_t t1y = static_cast<uint16_t>((b[38] >> 4) | (b[39] << 4));
         uint8_t bat = std::min<uint8_t>(b[52] & 0x0Fu, 10) * 10;
         uint8_t chg = (b[52] >> 4) & 0x0Fu;
-        console_printf("TELE,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%u,%u\n",
+        console_printf("TELE,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%u,%u,%u\n",
                        rx_0x31_seen ? 1u : 0u,
                        b[0], b[1], b[2], b[3], b[4], b[5],
                        b[7], b[8], b[9], b[10],
@@ -1309,7 +1310,8 @@ void bt_poll() {
                        static_cast<unsigned>(g_haptic_mode),
                        static_cast<unsigned long>(g_telemetry.bt_0x36_tx_count),
                        g_dsp_config.haptic_gain_pct,
-                       mic_led_override_mode);
+                       mic_led_override_mode,
+                       static_cast<unsigned>(g_usb_mode));
     }
 }
 

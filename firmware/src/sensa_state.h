@@ -9,6 +9,23 @@
 
 namespace sensa {
 
+enum class UsbMode : uint8_t {
+    DualSense = 0,   // 054C:0CE6 DualSense (4ch Audio + HID + CDC)
+    Xbox360 = 1,     // 045E:028E Xbox 360 Wired XInput + CDC
+    XboxSeries = 2,  // 045E:0B12 Experimental Xbox Series [MS-GIPUSB] + Impulse Triggers + CDC
+};
+
+inline char const *usb_mode_name(UsbMode m) {
+    switch (m) {
+        case UsbMode::DualSense: return "DualSense (054C:0CE6)";
+        case UsbMode::Xbox360: return "Xbox 360 XInput (045E:028E)";
+        case UsbMode::XboxSeries: return "Xbox Series GIP [Experimental] (045E:0B12)";
+        default: return "unknown";
+    }
+}
+
+constexpr uint32_t kUsbModeScratchMagic = 0x53454E53u; // "SENS"
+
 enum class HapticMode : uint8_t {
     Mode31Synth = 0,     // 0x31 (78B): Audio SimFx + Game 0x02 rumble merged cleanly
     Mode32SAxense = 1,   // 0x32 (142B): Pure SAxense audio-haptic blocks (zero 0x31 HapticsSelect)
@@ -105,6 +122,7 @@ struct Telemetry {
 };
 
 // Shared runtime singletons (defined in main.cpp)
+extern UsbMode g_usb_mode;
 extern HapticMode g_haptic_mode;
 extern DspConfig g_dsp_config;
 extern Telemetry g_telemetry;

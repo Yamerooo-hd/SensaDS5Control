@@ -39,7 +39,6 @@ public static class GitHubUpdater
         return new UpdateCheckResult(tag, uf2Url, appUrl, notes);
     }
 
-    /// Fallback for private dev builds: fetches latest SensaBridge.uf2 directly from GitHub Actions artifacts if no Release exists.
     public static async Task<byte[]?> DownloadLatestFirmwareBytesAsync(string? token, CancellationToken ct)
     {
         var rel = await CheckLatestReleaseAsync(token, ct);
@@ -48,13 +47,30 @@ public static class GitHubUpdater
         {
             return await http.GetByteArrayAsync(dl, ct);
         }
-        if (string.IsNullOrWhiteSpace(token)) return null;
+        return await DownloadWorkflowFileAsync(http, "Build SensaBridge Firmware", ".uf2", ct);
+    }
 
-        var runsUrl = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/actions/runs?per_page=10&status=success";
+    public static async Task<byte[]?> DownloadLatestAppExeBytesAsync(string? token, CancellationToken ct)
+    {
+        var rel = await CheckLatestReleaseAsync(token, ct);
+        using var http = CreateClient(token);
+        if (rel?.AppZipDownloadUrl is { } dl)
+        {
+            var bytes = await http.GetByteArrayAsync(dl, ct);
+            if (dl.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return bytes;
+            return ExtractFirstMatchingFromZip(bytes, ".exe");
+        }
+        return await DownloadWorkflowFileAsync(http, "Build SensaDS5Control Desktop App", ".exe", ct);
+    }
+
+    private static async Task<byte[]?> DownloadWorkflowFileAsync(HttpClient http, string workflowName, string extension, CancellationToken ct)
+    {
+        if (!http.DefaultRequestHeaders.Contains("Authorization")) return null;
+        var runsUrl = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/actions/runs?per_page=12&status=success";
         using var runsDoc = JsonDocument.Parse(await http.GetStringAsync(runsUrl, ct));
         foreach (var run in runsDoc.RootElement.GetProperty("workflow_runs").EnumerateArray())
         {
-            if (run.GetProperty("name").GetString() != "Build SensaBridge Firmware") continue;
+            if (run.GetProperty("name").GetString() != workflowName) continue;
             long id = run.GetProperty("id").GetInt64();
             using var artsDoc = JsonDocument.Parse(await http.GetStringAsync(
                 $"https://api.github.com/repos/{RepoOwner}/{RepoName}/actions/runs/{id}/artifacts", ct));
@@ -62,17 +78,23 @@ public static class GitHubUpdater
             {
                 string zipUrl = art.GetProperty("archive_download_url").GetString()!;
                 var zipBytes = await http.GetByteArrayAsync(zipUrl, ct);
-                using var ms = new MemoryStream(zipBytes);
-                using var zf = new ZipArchive(ms, ZipArchiveMode.Read);
-                var entry = zf.Entries.FirstOrDefault(e => e.Name.EndsWith(".uf2", StringComparison.OrdinalIgnoreCase));
-                if (entry == null) continue;
-                using var es = entry.Open();
-                using var outMs = new MemoryStream();
-                await es.CopyToAsync(outMs, ct);
-                return outMs.ToArray();
+                var found = ExtractFirstMatchingFromZip(zipBytes, extension);
+                if (found != null) return found;
             }
         }
         return null;
+    }
+
+    private static byte[]? ExtractFirstMatchingFromZip(byte[] zipBytes, string extension)
+    {
+        using var ms = new MemoryStream(zipBytes);
+        using var zf = new ZipArchive(ms, ZipArchiveMode.Read);
+        var entry = zf.Entries.FirstOrDefault(e => e.Name.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+        if (entry == null) return null;
+        using var es = entry.Open();
+        using var outMs = new MemoryStream();
+        es.CopyTo(outMs);
+        return outMs.ToArray();
     }
 
     private static HttpClient CreateClient(string? token)

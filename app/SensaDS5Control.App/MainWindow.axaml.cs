@@ -182,6 +182,12 @@ public partial class MainWindow : Window
             DashBridgeInfo.Text = $"Bridge: Mode {s.Mode} | 0x36 tx={s.Tx0x36} | Haptic Gain {s.HapticGainPct}%";
             DashBatteryInfo.Text = s.FullMode0x31 ? $"Battery: {s.BatteryPct}% (charging={s.ChargingState})" : "Battery: (waiting for 0x31 full mode)";
             DashReportMode.Text = s.FullMode0x31 ? "Input Mode: Full 0x31 (Gyro + Touchpad active)" : "Input Mode: Short 0x01 (Sticks/Buttons/Triggers)";
+            UsbModeStatus.Text = s.UsbMode switch
+            {
+                1 => "Active USB Personality: Xbox 360 XInput Controller (045E:028E)",
+                2 => "Active USB Personality: Xbox Series GIP [Experimental Trigger Rumble] (045E:0B12)",
+                _ => "Active USB Personality: DualSense Wireless Controller (054C:0CE6)"
+            };
             SubStatusText.Text = $"{(s.FullMode0x31 ? "Full 0x31" : "Short 0x01")} | tx0x36={s.Tx0x36} | Peak L={s.PeakHapticL:0.0}% R={s.PeakHapticR:0.0}%";
 
             Canvas.SetLeft(LeftStickDot, (s.Lx / 255.0) * 104 + 2);
@@ -399,9 +405,71 @@ public partial class MainWindow : Window
     private void OnPresetGreenClick(object? s, RoutedEventArgs e) => ApplyLed(0, 255, 60);
     private void OnPresetPurpleClick(object? s, RoutedEventArgs e) => ApplyLed(170, 0, 255);
 
-    private void OnUsbModeDs5Click(object? s, RoutedEventArgs e) => UsbModeStatus.Text = "USB DualSense mode active (054C:0CE6)";
-    private void OnUsbModeX360Click(object? s, RoutedEventArgs e) => UsbModeStatus.Text = "Xbox 360 XInput switching will be wired in Phase 5 firmware!";
-    private void OnUsbModeXSeriesClick(object? s, RoutedEventArgs e) => UsbModeStatus.Text = "Xbox Series Impulse Trigger switching will be wired in Phase 5 firmware!";
+    private void OnUsbModeDs5Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("ds5", "DualSense (054C:0CE6)");
+    private void OnUsbModeX360Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("x360", "Xbox 360 XInput (045E:028E)");
+    private void OnUsbModeXSeriesClick(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("xseries", "Xbox Series GIP [Experimental] (045E:0B12)");
+
+    private async Task SwitchUsbIdentityAsync(string cliMode, string label)
+    {
+        if (!_pico.IsConnected)
+        {
+            UsbModeStatus.Text = "Connect to Pico COM port first.";
+            return;
+        }
+        UsbModeStatus.Text = $"Switching USB personality to {label}...";
+        SubStatusText.Text = UsbModeStatus.Text;
+        _pico.SetUsbMode(cliMode);
+        await Task.Delay(250);
+        _pico.Disconnect($"Rebooting into {label}...");
+        for (int i = 0; i < 12; i++)
+        {
+            await Task.Delay(600);
+            RefreshPorts();
+            if (PortCombo.SelectedItem is string p && _pico.Connect(p))
+            {
+                UsbModeStatus.Text = $"Active USB Personality: {label}";
+                return;
+            }
+        }
+        UsbModeStatus.Text = $"Switched to {label} — click Connect if COM port changed.";
+    }
+
+    private async void OnUpdateAppClick(object? sender, RoutedEventArgs e)
+    {
+        UpdaterStatusTxt.Text = "Downloading latest SensaDS5Control.exe from GitHub...";
+        try
+        {
+            var exeBytes = await GitHubUpdater.DownloadLatestAppExeBytesAsync(_settings.GitHubToken, CancellationToken.None);
+            if (exeBytes == null || exeBytes.Length < 100000)
+            {
+                const string errMsg = "No app build found (paste GitHub token for Private repo updates).";
+                UpdaterStatusTxt.Text = errMsg;
+                SubStatusText.Text = errMsg;
+                return;
+            }
+            var currentExe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(currentExe) || !currentExe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                UpdaterStatusTxt.Text = "Self-update only applies when running packaged SensaDS5Control.exe.";
+                return;
+            }
+            var staged = currentExe + ".new";
+            await File.WriteAllBytesAsync(staged, exeBytes);
+            var bat = Path.Combine(Path.GetTempPath(), "sensads5_update.cmd");
+            await File.WriteAllTextAsync(bat, $"@echo off\r\nping -n 2 127.0.0.1 >nul\r\nmove /y \"{staged}\" \"{currentExe}\"\r\nstart \"\" \"{currentExe}\"\r\n");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c \"{bat}\"")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false
+            });
+            Close();
+        }
+        catch (Exception ex)
+        {
+            UpdaterStatusTxt.Text = $"App update failed: {ex.Message}";
+            SubStatusText.Text = UpdaterStatusTxt.Text;
+        }
+    }
 
     private void OnCmdStatusClick(object? s, RoutedEventArgs e) => _pico.SendCommand("status");
     private void OnCmdDbgClick(object? s, RoutedEventArgs e) => _pico.SendCommand("dbg");

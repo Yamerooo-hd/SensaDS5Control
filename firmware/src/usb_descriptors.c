@@ -5,14 +5,24 @@
 #define AUDIO_AND_HID_BASE_LEN (8 + 227)
 #define CONFIG_TOTAL_LEN (AUDIO_AND_HID_BASE_LEN + TUD_CDC_DESC_LEN)
 
+#define XUSB360_ITF_LEN (9 + 17 + 7 + 7)
+#define XUSB360_CONFIG_TOTAL_LEN (9 + XUSB360_ITF_LEN + TUD_CDC_DESC_LEN)
+
+#define XSERIES_ITF_LEN (9 + 7 + 7)
+#define XSERIES_CONFIG_TOTAL_LEN (9 + XSERIES_ITF_LEN + TUD_CDC_DESC_LEN)
+
 enum {
     STRID_LANGID = 0,
     STRID_MANUFACTURER,
     STRID_PRODUCT,
     STRID_CDC,
+    STRID_SERIAL,
+    STRID_MS_MFG,
+    STRID_X360_PROD,
+    STRID_XSERIES_PROD,
 };
 
-static tusb_desc_device_t const desc_device = {
+static tusb_desc_device_t const desc_device_ds5 = {
     .bLength            = sizeof(tusb_desc_device_t),
     .bDescriptorType    = TUSB_DESC_DEVICE,
     .bcdUSB             = 0x0200,
@@ -20,7 +30,6 @@ static tusb_desc_device_t const desc_device = {
     .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol    = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
-    // DualSense USB identity (so Windows Audio & Control Resonant use native DualSense path)
     .idVendor           = 0x054C,
     .idProduct          = 0x0CE6,
     .bcdDevice          = 0x0157,
@@ -30,8 +39,45 @@ static tusb_desc_device_t const desc_device = {
     .bNumConfigurations = 0x01
 };
 
+static tusb_desc_device_t const desc_device_x360 = {
+    .bLength            = sizeof(tusb_desc_device_t),
+    .bDescriptorType    = TUSB_DESC_DEVICE,
+    .bcdUSB             = 0x0200,
+    .bDeviceClass       = TUSB_CLASS_MISC,
+    .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol    = MISC_PROTOCOL_IAD,
+    .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor           = 0x045E,
+    .idProduct          = 0x028E,
+    .bcdDevice          = 0x0157,
+    .iManufacturer      = STRID_MS_MFG,
+    .iProduct           = STRID_X360_PROD,
+    .iSerialNumber      = STRID_SERIAL,
+    .bNumConfigurations = 0x01
+};
+
+static tusb_desc_device_t const desc_device_xseries = {
+    .bLength            = sizeof(tusb_desc_device_t),
+    .bDescriptorType    = TUSB_DESC_DEVICE,
+    .bcdUSB             = 0x0200,
+    .bDeviceClass       = TUSB_CLASS_MISC,
+    .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol    = MISC_PROTOCOL_IAD,
+    .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor           = 0x045E,
+    .idProduct          = 0x0B12,
+    .bcdDevice          = 0x0509,
+    .iManufacturer      = STRID_MS_MFG,
+    .iProduct           = STRID_XSERIES_PROD,
+    .iSerialNumber      = STRID_SERIAL,
+    .bNumConfigurations = 0x01
+};
+
 uint8_t const *tud_descriptor_device_cb(void) {
-    return (uint8_t const *)&desc_device;
+    uint8_t mode = sensa_active_usb_mode();
+    if (mode == 1) return (uint8_t const *)&desc_device_x360;
+    if (mode == 2) return (uint8_t const *)&desc_device_xseries;
+    return (uint8_t const *)&desc_device_ds5;
 }
 
 // 289-byte DualSense USB HID Report Descriptor
@@ -245,26 +291,137 @@ static uint8_t const desc_configuration[] = {
 
 TU_VERIFY_STATIC(sizeof(desc_configuration) == CONFIG_TOTAL_LEN, "Incorrect config descriptor length");
 
+uint8_t const *tud_descriptor_configuration_cb(uint8_t index);
+
+static uint8_t const desc_config_x360[] = {
+    0x09, 0x02,
+    XUSB360_CONFIG_TOTAL_LEN & 0xFF, (XUSB360_CONFIG_TOTAL_LEN >> 8) & 0xFF,
+    0x03, // bNumInterfaces: 0 X360, 1..2 CDC
+    0x01, 0x00, 0xA0, 0xFA,
+
+    // --- Interface 0: Xbox 360 Controller (XUSB 1.0) ---
+    0x09, 0x04, XBOX_ITF_NUM, 0x00, 0x02, 0xFF, 0x5D, 0x01, STRID_X360_PROD,
+    // XUSB class-specific 17-byte descriptor (EP IN 0x81 20B, EP OUT 0x02 8B)
+    0x11, 0x21, 0x00, 0x01,
+    0x01, 0x25, XUSB360_EP_IN, 0x14,
+    0x00, 0x00, 0x00, 0x00,
+    0x13, XUSB360_EP_OUT, 0x08, 0x00, 0x00,
+    // EP IN 0x81 (32B, 4ms)
+    0x07, 0x05, XUSB360_EP_IN, 0x03, 0x20, 0x00, 0x04,
+    // EP OUT 0x02 (32B, 8ms)
+    0x07, 0x05, XUSB360_EP_OUT, 0x03, 0x20, 0x00, 0x08,
+
+    // --- Interfaces 1 & 2: USB CDC ACM Diagnostic Console ---
+    TUD_CDC_DESCRIPTOR(XBOX_CDC_COMM_ITF_NUM, STRID_CDC, 0x87, 8, 0x06, 0x86, 64)
+};
+TU_VERIFY_STATIC(sizeof(desc_config_x360) == XUSB360_CONFIG_TOTAL_LEN, "Incorrect X360 config length");
+
+static uint8_t const desc_config_xseries[] = {
+    0x09, 0x02,
+    XSERIES_CONFIG_TOTAL_LEN & 0xFF, (XSERIES_CONFIG_TOTAL_LEN >> 8) & 0xFF,
+    0x03, // bNumInterfaces: 0 GIP, 1..2 CDC
+    0x01, 0x00, 0xA0, 0xFA,
+
+    // --- Interface 0: Xbox Series GIP [MS-GIPUSB] (Class FF, SubClass 47, Proto D0) ---
+    0x09, 0x04, XBOX_ITF_NUM, 0x00, 0x02, 0xFF, 0x47, 0xD0, STRID_XSERIES_PROD,
+    // EP IN 0x81 (64B, 4ms)
+    0x07, 0x05, XBOXGIP_EP_IN, 0x03, 0x40, 0x00, 0x04,
+    // EP OUT 0x01 (64B, 4ms)
+    0x07, 0x05, XBOXGIP_EP_OUT, 0x03, 0x40, 0x00, 0x04,
+
+    // --- Interfaces 1 & 2: USB CDC ACM Diagnostic Console ---
+    TUD_CDC_DESCRIPTOR(XBOX_CDC_COMM_ITF_NUM, STRID_CDC, 0x87, 8, 0x06, 0x86, 64)
+};
+TU_VERIFY_STATIC(sizeof(desc_config_xseries) == XSERIES_CONFIG_TOTAL_LEN, "Incorrect XSeries config length");
+
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     (void)index;
+    uint8_t mode = sensa_active_usb_mode();
+    if (mode == 1) return desc_config_x360;
+    if (mode == 2) return desc_config_xseries;
     return desc_configuration;
 }
 
 static char const *string_desc_arr[] = {
     (const char[]){0x09, 0x04},             // 0: English (0x0409)
-    "Sony Interactive Entertainment",       // 1: Manufacturer
-    "DualSense Wireless Controller",        // 2: Product
+    "Sony Interactive Entertainment",       // 1: Manufacturer (DS5)
+    "DualSense Wireless Controller",        // 2: Product (DS5)
     "SensaBridge Diagnostic Console",       // 3: CDC Interface
+    "",                                     // 4: Dynamic 32-hex Serial
+    "Microsoft Corporation",                // 5: Manufacturer (Xbox)
+    "Xbox 360 Controller for Windows",      // 6: Product (X360)
+    "Xbox Wireless Controller",             // 7: Product (Xbox Series)
 };
 
 static uint16_t _desc_str[64];
 
+static uint8_t const desc_ms_os_compat_x360[40] = {
+    0x28, 0x00, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    XBOX_ITF_NUM, 0x01,
+    'X', 'U', 'S', 'B', '1', '0', 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static uint8_t const desc_ms_os_compat_xseries[40] = {
+    0x28, 0x00, 0x00, 0x00, 0x00, 0x01, 0x04, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    XBOX_ITF_NUM, 0x01,
+    'X', 'G', 'I', 'P', '1', '0', 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+bool sensa_handle_ms_os_control(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request) {
+    if (request == NULL || request->bmRequestType_bit.type != TUSB_REQ_TYPE_VENDOR) {
+        return false;
+    }
+    if (stage != CONTROL_STAGE_SETUP) {
+        return true;
+    }
+    uint8_t mode = sensa_active_usb_mode();
+    if (mode == 1 && request->bRequest == MS_OS_VENDOR_CODE_X360 && request->wIndex == 4 &&
+        request->bmRequestType_bit.direction == TUSB_DIR_IN) {
+        uint16_t len = request->wLength < sizeof(desc_ms_os_compat_x360) ? request->wLength : sizeof(desc_ms_os_compat_x360);
+        return tud_control_xfer(rhport, request, (void *)(uintptr_t)desc_ms_os_compat_x360, len);
+    }
+    if (mode == 2 && request->bRequest == MS_OS_VENDOR_CODE_XSERIES && request->wIndex == 4 &&
+        request->bmRequestType_bit.direction == TUSB_DIR_IN) {
+        uint16_t len = request->wLength < sizeof(desc_ms_os_compat_xseries) ? request->wLength : sizeof(desc_ms_os_compat_xseries);
+        return tud_control_xfer(rhport, request, (void *)(uintptr_t)desc_ms_os_compat_xseries, len);
+    }
+    return false;
+}
+
+bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_request_t const *request) {
+    return sensa_handle_ms_os_control(rhport, stage, request);
+}
+
 uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     (void)langid;
     size_t chr_count = 0;
+    uint8_t mode = sensa_active_usb_mode();
+
+    if (index == 0xEE) {
+        if (mode != 1 && mode != 2) return NULL;
+        char const msft[7] = {'M', 'S', 'F', 'T', '1', '0', '0'};
+        for (size_t i = 0; i < 7; ++i) _desc_str[1 + i] = (uint16_t)msft[i];
+        _desc_str[8] = (mode == 1) ? MS_OS_VENDOR_CODE_X360 : MS_OS_VENDOR_CODE_XSERIES;
+        _desc_str[0] = (uint16_t)((TUSB_DESC_STRING << 8) | (2 * 8 + 2));
+        return _desc_str;
+    }
+
     if (index == STRID_LANGID) {
         memcpy(&_desc_str[1], string_desc_arr[0], 2);
         chr_count = 1;
+    } else if (index == STRID_SERIAL) {
+        char serial_buf[33];
+        sensa_get_unique_serial_hex32(serial_buf);
+        chr_count = 32;
+        for (size_t i = 0; i < chr_count; ++i) {
+            _desc_str[1 + i] = (uint16_t)serial_buf[i];
+        }
     } else {
         if (index >= sizeof(string_desc_arr) / sizeof(string_desc_arr[0])) {
             return NULL;

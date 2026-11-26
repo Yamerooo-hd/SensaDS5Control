@@ -174,6 +174,27 @@ void handle_command(char *line) {
         } else {
             console_printf("[LED] Usage: led <r> <g> <b> | led auto\n");
         }
+    } else if (eq_ci(cmd, "usbmode")) {
+        if (n < 2) {
+            console_printf("[USBMODE] Active: %s (usage: usbmode <ds5|x360|xseries>)\n", usb_mode_name(g_usb_mode));
+        } else {
+            UsbMode target = g_usb_mode;
+            bool ok = true;
+            if (eq_ci(tokens[1], "ds5")) target = UsbMode::DualSense;
+            else if (eq_ci(tokens[1], "x360")) target = UsbMode::Xbox360;
+            else if (eq_ci(tokens[1], "xseries")) target = UsbMode::XboxSeries;
+            else ok = false;
+            if (!ok) {
+                console_printf("[USBMODE] Unknown '%s'. Use ds5, x360, or xseries.\n", tokens[1]);
+            } else {
+                watchdog_hw->scratch[0] = kUsbModeScratchMagic;
+                watchdog_hw->scratch[1] = static_cast<uint32_t>(target);
+                console_printf("[USBMODE] Switching USB identity to %s -> rebooting...\n", usb_mode_name(target));
+                console_poll();
+                sleep_ms(60);
+                watchdog_reboot(0, 0, 0);
+            }
+        }
     } else if (eq_ci(cmd, "pair")) {
         bt_start_pairing();
     } else if (eq_ci(cmd, "forget")) {
@@ -243,6 +264,7 @@ void console_print_help() {
     console_printf("  led <r> <g> <b> | auto - RGB lightbar override / auto\n");
     console_printf("  micled <0|1|2>      - Mic Mute LED (0=off, 1=solid, 2=pulse)\n");
     console_printf("  trig <R|L|both> <auto|mode p0..p9> - Adaptive trigger override\n");
+    console_printf("  usbmode <ds5|x360|xseries> - Switch USB identity & soft-reboot\n");
     console_printf("  tele <0|1> | btmon <0|1> | unlock <0..4> | dbg\n");
     console_printf("  pair | forget | disconnect | reboot | bootsel\n\n");
 }
@@ -250,7 +272,7 @@ void console_print_help() {
 void console_print_status() {
     auto const &t = g_telemetry;
     console_printf("\n--- SensaBridge Status ---\n");
-    console_printf("Mode: %s\n", haptic_mode_name(g_haptic_mode));
+    console_printf("Mode: %s | USBID: %s\n", haptic_mode_name(g_haptic_mode), usb_mode_name(g_usb_mode));
     console_printf("USB: mounted=%d spkStream=%d micStream=%d vol=%u%% mute=%d audioFrames=%lu usb0x02=%lu\n",
                    t.usb_mounted ? 1 : 0, t.usb_speaker_streaming ? 1 : 0, t.usb_mic_streaming ? 1 : 0,
                    t.usb_volume_pct, t.usb_muted ? 1 : 0,

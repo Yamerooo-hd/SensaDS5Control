@@ -16,6 +16,7 @@
 
 namespace sensa {
 
+UsbMode g_usb_mode = UsbMode::DualSense;
 HapticMode g_haptic_mode = HapticMode::Mode36Haptics;
 DspConfig g_dsp_config{};
 Telemetry g_telemetry{};
@@ -104,6 +105,12 @@ void poll_bootsel_and_led(uint32_t now_us) {
 } // namespace sensa
 
 int main() {
+    if (watchdog_hw->scratch[0] == sensa::kUsbModeScratchMagic) {
+        uint32_t m = watchdog_hw->scratch[1];
+        if (m <= 2) {
+            sensa::g_usb_mode = static_cast<sensa::UsbMode>(m);
+        }
+    }
     board_init();
     sensa::console_init();
     sensa::usb_init();

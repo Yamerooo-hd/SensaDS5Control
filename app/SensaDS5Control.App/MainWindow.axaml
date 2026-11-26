@@ -62,7 +62,7 @@
             <Border Classes="card">
               <StackPanel Spacing="8">
                 <TextBlock Classes="hdr" Text="USB Controller Identity (XInput / Xbox Support)" />
-                <TextBlock Classes="dim" Text="Switches how the Pico enumerates over USB to Windows/Linux (requires Phase 5 firmware support — DualSense mode is active today)." TextWrapping="Wrap" />
+                <TextBlock Classes="dim" Text="Switches how the Pico 2 W enumerates over USB while keeping COM telemetry/controls active. Soft-reboots Pico (~2.5s)." TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <Button Content="DualSense (Native Haptics + Triggers)" Click="OnUsbModeDs5Click" />
                   <Button Content="Xbox 360 (XInput Universal)" Click="OnUsbModeX360Click" />
@@ -283,6 +283,7 @@
                 <TextBox x:Name="TokenBox" Width="320" Watermark="Optional GitHub Token (for Private Repo Updates)" PasswordChar="•" />
                 <Button Content="Save Token" Click="OnSaveTokenClick" />
                 <Button Content="1-Click Update Pico Firmware" Click="OnUpdateFirmwareClick" Background="#16A34A" Foreground="White" />
+                <Button Content="Update Desktop App (.exe)" Click="OnUpdateAppClick" />
               </StackPanel>
               <TextBlock x:Name="UpdaterStatusTxt" Classes="dim" Text="Repo: Yamerooo-hd/SensaDS5Control" />
             </StackPanel>

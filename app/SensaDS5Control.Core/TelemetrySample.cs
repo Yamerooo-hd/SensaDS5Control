@@ -11,7 +11,8 @@ public sealed record TelemetrySample(
     bool Touch1Down, ushort Touch1X, ushort Touch1Y,
     byte BatteryPct, byte ChargingState,
     double PeakHapticL, double PeakHapticR,
-    byte Mode, uint Tx0x36, byte HapticGainPct, byte MicLedMode)
+    byte Mode, uint Tx0x36, byte HapticGainPct, byte MicLedMode,
+    byte UsbMode = 0)
 {
     public int DPad => Btn0 & 0x0F;
     public bool Square => (Btn0 & 0x10) != 0;
@@ -56,7 +57,8 @@ public sealed record TelemetrySample(
                 BatteryPct: byte.Parse(p[24]), ChargingState: byte.Parse(p[25]),
                 PeakHapticL: int.Parse(p[26]) / 10.0, PeakHapticR: int.Parse(p[27]) / 10.0,
                 Mode: byte.Parse(p[28]), Tx0x36: uint.Parse(p[29]),
-                HapticGainPct: byte.Parse(p[30]), MicLedMode: byte.Parse(p[31])
+                HapticGainPct: byte.Parse(p[30]), MicLedMode: byte.Parse(p[31]),
+                UsbMode: p.Length > 32 ? byte.Parse(p[32]) : (byte)0
             );
             return true;
         }
