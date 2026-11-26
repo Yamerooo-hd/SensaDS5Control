@@ -1,0 +1,302 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SensaDS5Control.App.MainWindow"
+        Title="SensaDS5Control — Cosmic Byte Sensa Suite"
+        Width="980" Height="680" MinWidth="860" MinHeight="600"
+        Background="#14161D">
+
+  <DockPanel Margin="12">
+    <!-- Top Connection & Quick Action Bar -->
+    <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,10" Padding="12,10">
+      <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+        <ComboBox x:Name="PortCombo" Width="110" VerticalAlignment="Center" Margin="0,0,8,0" />
+        <Button x:Name="ConnectBtn" Grid.Column="1" Content="Connect" Click="OnConnectClick" Margin="0,0,12,0" />
+        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+          <TextBlock x:Name="StatusText" Text="Disconnected — plug Pico 2 W into USB" FontWeight="SemiBold" FontSize="13" />
+          <TextBlock x:Name="SubStatusText" Classes="dim" Text="Waiting for COM port..." />
+        </StackPanel>
+        <ToggleButton x:Name="QuickTouchMouseBtn" Grid.Column="3" Content="Touchpad Mouse: OFF"
+                      Click="OnQuickTouchMouseClick" Margin="0,0,8,0" />
+        <Button x:Name="QuickMicMuteBtn" Grid.Column="4" Content="Mic: Unmuted"
+                Click="OnToggleMicMuteClick" Margin="0,0,8,0" />
+        <Button x:Name="QuickUpdateBtn" Grid.Column="5" Content="Update FW / App"
+                Click="OnUpdateFirmwareClick" Background="#2563EB" Foreground="White" />
+      </Grid>
+    </Border>
+
+    <TabControl>
+      <!-- TAB 1: DASHBOARD & USB MODE -->
+      <TabItem Header="Dashboard">
+        <ScrollViewer>
+          <StackPanel Spacing="10" Margin="4">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+              <Border Classes="card">
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="hdr" Text="Wireless Bridge Status" />
+                  <TextBlock x:Name="DashBridgeInfo" Text="Bridge: Not connected" />
+                  <TextBlock x:Name="DashBatteryInfo" Text="Battery: --" />
+                  <TextBlock x:Name="DashReportMode" Text="Input Report Mode: --" />
+                  <TextBlock Classes="dim" Text="Note: Real DualSense haptics stream automatically via 0x36 (398B) when supported games send 4-ch audio." TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="1" Classes="card">
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="hdr" Text="Mouse &amp; Gyro Control" />
+                  <CheckBox x:Name="TouchMouseChk" Content="Enable Touchpad as Mouse (1-finger move, tap/click, 2-finger scroll)"
+                            IsCheckedChanged="OnMouseSettingsChanged" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Touch Sensitivity:" VerticalAlignment="Center" Width="125" />
+                    <Slider x:Name="TouchSensSlider" Minimum="0.3" Maximum="3.5" Value="1.2" Width="180"
+                            ValueChanged="OnMouseSettingsChanged" />
+                    <TextBlock x:Name="TouchSensLabel" Text="1.2x" VerticalAlignment="Center" />
+                  </StackPanel>
+                  <CheckBox x:Name="GyroMouseChk" Content="Enable Gyro Aiming as Mouse" IsCheckedChanged="OnMouseSettingsChanged" />
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <CheckBox x:Name="GyroL2Chk" Content="Only while holding L2" IsChecked="True" IsCheckedChanged="OnMouseSettingsChanged" />
+                    <Button Content="Calibrate Gyro Zero" Click="OnCalibrateGyroClick" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </Grid>
+
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="hdr" Text="USB Controller Identity (XInput / Xbox Support)" />
+                <TextBlock Classes="dim" Text="Switches how the Pico enumerates over USB to Windows/Linux (requires Phase 5 firmware support — DualSense mode is active today)." TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="DualSense (Native Haptics + Triggers)" Click="OnUsbModeDs5Click" />
+                  <Button Content="Xbox 360 (XInput Universal)" Click="OnUsbModeX360Click" />
+                  <Button Content="Xbox Series (Experimental Trigger Rumble)" Click="OnUsbModeXSeriesClick" />
+                </StackPanel>
+                <TextBlock x:Name="UsbModeStatus" Classes="dim" Text="Active USB Personality: DualSense Wireless Controller (054C:0CE6)" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- TAB 2: INPUTS, GYRO & TOUCHPAD TESTER -->
+      <TabItem Header="Inputs &amp; Gyro Tester">
+        <ScrollViewer>
+          <StackPanel Spacing="10" Margin="4">
+            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="12">
+              <Border Classes="card">
+                <StackPanel Spacing="6" HorizontalAlignment="Center">
+                  <TextBlock Classes="hdr" Text="Left Stick" />
+                  <Canvas Width="120" Height="120" Background="#12141A">
+                    <Ellipse Width="116" Height="116" Canvas.Left="2" Canvas.Top="2" Stroke="#333848" StrokeThickness="1" />
+                    <Ellipse x:Name="LeftStickDot" Width="12" Height="12" Fill="#38BDF8" Canvas.Left="54" Canvas.Top="54" />
+                  </Canvas>
+                  <TextBlock x:Name="LeftStickTxt" Classes="dim" Text="128, 128" HorizontalAlignment="Center" />
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="1" Classes="card">
+                <StackPanel Spacing="6" HorizontalAlignment="Center">
+                  <TextBlock Classes="hdr" Text="Right Stick" />
+                  <Canvas Width="120" Height="120" Background="#12141A">
+                    <Ellipse Width="116" Height="116" Canvas.Left="2" Canvas.Top="2" Stroke="#333848" StrokeThickness="1" />
+                    <Ellipse x:Name="RightStickDot" Width="12" Height="12" Fill="#A855F7" Canvas.Left="54" Canvas.Top="54" />
+                  </Canvas>
+                  <TextBlock x:Name="RightStickTxt" Classes="dim" Text="128, 128" HorizontalAlignment="Center" />
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="2" Classes="card">
+                <StackPanel Spacing="6">
+                  <TextBlock Classes="hdr" Text="Triggers &amp; Buttons" />
+                  <Grid ColumnDefinitions="40,*" RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <TextBlock Text="L2" VerticalAlignment="Center" />
+                    <ProgressBar x:Name="L2Bar" Grid.Column="1" Minimum="0" Maximum="255" Height="14" />
+                    <TextBlock Grid.Row="1" Text="R2" VerticalAlignment="Center" />
+                    <ProgressBar x:Name="R2Bar" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="255" Height="14" />
+                  </Grid>
+                  <TextBlock x:Name="ButtonsActiveTxt" Text="Pressed: (none)" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0" />
+                  <TextBlock x:Name="RawBytesTxt" Classes="dim" Text="Raw Btn Bytes: --" />
+                </StackPanel>
+              </Border>
+            </Grid>
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+              <Border Classes="card">
+                <StackPanel Spacing="6">
+                  <TextBlock Classes="hdr" Text="Touchpad Live Monitor (requires Full 0x31)" />
+                  <Canvas Width="320" Height="140" Background="#12141A" HorizontalAlignment="Left">
+                    <Ellipse x:Name="Touch0Dot" Width="14" Height="14" Fill="#22C55E" IsVisible="False" />
+                    <Ellipse x:Name="Touch1Dot" Width="14" Height="14" Fill="#F59E0B" IsVisible="False" />
+                  </Canvas>
+                  <TextBlock x:Name="TouchTxt" Classes="dim" Text="Touch 0: -- | Touch 1: --" />
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="1" Classes="card">
+                <StackPanel Spacing="6">
+                  <TextBlock Classes="hdr" Text="Gyroscope &amp; Accelerometer" />
+                  <TextBlock x:Name="GyroTxt" Text="Gyro (X, Y, Z): 0, 0, 0" />
+                  <TextBlock x:Name="AccelTxt" Text="Accel (X, Y, Z): 0, 0, 0" />
+                  <TextBlock Classes="dim" Text="If Gyro &amp; Touchpad read 0 while connected, use Diagnostics -> Unlock 0x31 test buttons so we inspect your BT init!" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+            </Grid>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- TAB 3: HAPTICS & AUDIO -->
+      <TabItem Header="Haptics &amp; Tests">
+        <ScrollViewer>
+          <StackPanel Spacing="10" Margin="4">
+            <Border Classes="card">
+              <StackPanel Spacing="10">
+                <TextBlock Classes="hdr" Text="Wireless Audio-Haptic Strength (0x36 Stream)" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <TextBlock Text="Haptic Gain:" VerticalAlignment="Center" Width="100" />
+                  <Slider x:Name="HapticGainSlider" Minimum="25" Maximum="255" Value="150" Width="280"
+                          ValueChanged="OnHapticGainChanged" />
+                  <TextBlock x:Name="HapticGainLabel" Text="150%" VerticalAlignment="Center" FontWeight="SemiBold" />
+                </StackPanel>
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto" RowSpacing="6">
+                  <TextBlock Text="Game CH3 L:" VerticalAlignment="Center" />
+                  <ProgressBar x:Name="HapticLBar" Grid.Column="1" Minimum="0" Maximum="100" Height="14" />
+                  <TextBlock Grid.Row="1" Text="Game CH4 R:" VerticalAlignment="Center" />
+                  <ProgressBar x:Name="HapticRBar" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Height="14" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="hdr" Text="Function Testers" />
+                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                  <Button Content="0x36 Crisp Tap (160Hz, 300ms)" Click="OnTestCrispTapClick" />
+                  <Button Content="0x36 Haptic Buzz (120Hz, 900ms)" Click="OnTestHapticBuzzClick" />
+                  <Button Content="0x36 Deep Thump (55Hz, 700ms)" Click="OnTestDeepThumpClick" />
+                  <Button Content="0x31 Classic Rumble Left" Click="OnTestRumbleLeftClick" />
+                  <Button Content="0x31 Classic Rumble Right" Click="OnTestRumbleRightClick" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- TAB 4: ADAPTIVE TRIGGERS -->
+      <TabItem Header="Adaptive Triggers">
+        <ScrollViewer>
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="4">
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="hdr" Text="Left Trigger (L2)" />
+                <ComboBox x:Name="LeftTrigCombo" SelectedIndex="0" HorizontalAlignment="Stretch" />
+                <TextBlock Text="Start Position (0–255)" Classes="dim" />
+                <Slider x:Name="LStartSlider" Minimum="0" Maximum="255" Value="40" />
+                <TextBlock Text="End Position (0–255)" Classes="dim" />
+                <Slider x:Name="LEndSlider" Minimum="0" Maximum="255" Value="180" />
+                <TextBlock Text="Force / Strength (0–255)" Classes="dim" />
+                <Slider x:Name="LForceSlider" Minimum="0" Maximum="255" Value="200" />
+                <TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" />
+                <Slider x:Name="LFreqSlider" Minimum="5" Maximum="60" Value="20" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="Apply L2" Click="OnApplyLeftTriggerClick" Background="#2563EB" Foreground="White" />
+                  <Button Content="Follow Game" Click="OnAutoLeftTriggerClick" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Column="1" Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="hdr" Text="Right Trigger (R2)" />
+                <ComboBox x:Name="RightTrigCombo" SelectedIndex="0" HorizontalAlignment="Stretch" />
+                <TextBlock Text="Start Position (0–255)" Classes="dim" />
+                <Slider x:Name="RStartSlider" Minimum="0" Maximum="255" Value="60" />
+                <TextBlock Text="End Position (0–255)" Classes="dim" />
+                <Slider x:Name="REndSlider" Minimum="0" Maximum="255" Value="170" />
+                <TextBlock Text="Force / Strength (0–255)" Classes="dim" />
+                <Slider x:Name="RForceSlider" Minimum="0" Maximum="255" Value="220" />
+                <TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" />
+                <Slider x:Name="RFreqSlider" Minimum="5" Maximum="60" Value="25" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="Apply R2" Click="OnApplyRightTriggerClick" Background="#2563EB" Foreground="White" />
+                  <Button Content="Follow Game" Click="OnAutoRightTriggerClick" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+          </Grid>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- TAB 5: LIGHTING & MIC -->
+      <TabItem Header="Lighting &amp; Mic">
+        <ScrollViewer>
+          <StackPanel Spacing="10" Margin="4">
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="hdr" Text="RGB Lightbar" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Border x:Name="LedPreviewBox" Width="44" Height="44" CornerRadius="8" Background="#00A0FF" />
+                  <StackPanel Spacing="4" Width="320">
+                    <Slider x:Name="LedRSlider" Minimum="0" Maximum="255" Value="0" ValueChanged="OnLedSliderChanged" />
+                    <Slider x:Name="LedGSlider" Minimum="0" Maximum="255" Value="160" ValueChanged="OnLedSliderChanged" />
+                    <Slider x:Name="LedBSlider" Minimum="0" Maximum="255" Value="255" ValueChanged="OnLedSliderChanged" />
+                  </StackPanel>
+                </StackPanel>
+                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                  <Button Content="Apply RGB" Click="OnApplyLedClick" Background="#2563EB" Foreground="White" />
+                  <Button Content="Follow Game (Auto)" Click="OnAutoLedClick" />
+                  <Button Content="Cyan" Click="OnPresetCyanClick" />
+                  <Button Content="Crimson" Click="OnPresetRedClick" />
+                  <Button Content="Emerald" Click="OnPresetGreenClick" />
+                  <Button Content="Purple" Click="OnPresetPurpleClick" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="hdr" Text="Microphone Mute &amp; Orange LED" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="Mic LED: OFF" Click="OnMicLedOffClick" />
+                  <Button Content="Mic LED: Solid ON" Click="OnMicLedSolidClick" />
+                  <Button Content="Mic LED: Pulse" Click="OnMicLedPulseClick" />
+                  <Button x:Name="MicMuteTabBtn" Content="Toggle Windows Mic Mute" Click="OnToggleMicMuteClick" />
+                </StackPanel>
+                <CheckBox x:Name="SyncMicBtnChk" Content="Sync controller physical Mic Mute button with Windows Mic + LED" IsChecked="True" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- TAB 6: CONSOLE & UPDATES -->
+      <TabItem Header="Console &amp; Updates">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8" Margin="4">
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="hdr" Text="Diagnostics &amp; GitHub Auto-Updater" />
+              <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                <Button Content="Status" Click="OnCmdStatusClick" />
+                <Button Content="Debug Dump" Click="OnCmdDbgClick" />
+                <Button Content="Unlock 0x31 (1)" Click="OnUnlock1Click" />
+                <Button Content="Unlock 0x31 (2)" Click="OnUnlock2Click" />
+                <Button Content="Unlock 0x31 (3)" Click="OnUnlock3Click" />
+                <Button Content="Unlock 0x31 (4)" Click="OnUnlock4Click" />
+                <ToggleButton x:Name="BtMonToggle" Content="Back-Paddle / Input Diff Monitor" Click="OnBtMonToggleClick" />
+              </WrapPanel>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBox x:Name="TokenBox" Width="320" Watermark="Optional GitHub Token (for Private Repo Updates)" PasswordChar="•" />
+                <Button Content="Save Token" Click="OnSaveTokenClick" />
+                <Button Content="1-Click Update Pico Firmware" Click="OnUpdateFirmwareClick" Background="#16A34A" Foreground="White" />
+              </StackPanel>
+              <TextBlock x:Name="UpdaterStatusTxt" Classes="dim" Text="Repo: Yamerooo-hd/SensaDS5Control" />
+            </StackPanel>
+          </Border>
+
+          <TextBox x:Name="ConsoleLogBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True"
+                   FontFamily="Consolas" FontSize="12" Background="#0D0F14" TextWrapping="Wrap" />
+
+          <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox x:Name="CliInputBox" Watermark="Send raw command to Pico (e.g. status, mode 36, tune hgain 180)..." KeyDown="OnCliKeyDown" />
+            <Button Grid.Column="1" Content="Send" Click="OnSendCliClick" />
+          </Grid>
+        </Grid>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</Window>
