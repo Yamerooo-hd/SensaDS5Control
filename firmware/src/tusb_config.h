@@ -1,0 +1,75 @@
+#ifndef _SENSA_TUSB_CONFIG_H
+#define _SENSA_TUSB_CONFIG_H
+
+#include "pico/platform/sections.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifndef BOARD_TUD_RHPORT
+#define BOARD_TUD_RHPORT 0
+#endif
+
+#ifndef CFG_TUSB_MCU
+#error CFG_TUSB_MCU must be defined
+#endif
+
+#ifndef CFG_TUSB_OS
+#define CFG_TUSB_OS OPT_OS_NONE
+#endif
+
+#define CFG_TUSB_RHPORT0_MODE OPT_MODE_DEVICE
+
+#ifndef CFG_TUSB_MEM_SECTION
+#define CFG_TUSB_MEM_SECTION
+#endif
+
+#ifndef CFG_TUSB_MEM_ALIGN
+#define CFG_TUSB_MEM_ALIGN __attribute__((aligned(4)))
+#endif
+
+#define CFG_TUD_ENDPOINT0_SIZE 64
+
+// Dedicated DualSense Audio + HID + CDC Diagnostic Serial Console
+#define CFG_TUD_CDC 1
+#define CFG_TUD_MSC 0
+#define CFG_TUD_HID 1
+#define CFG_TUD_MIDI 0
+#define CFG_TUD_AUDIO 1
+#define CFG_TUD_VENDOR 0
+
+#define CFG_TUD_HID_EP_BUFSIZE 64
+
+#define CFG_TUD_CDC_RX_BUFSIZE 256
+#define CFG_TUD_CDC_TX_BUFSIZE 2048
+#define CFG_TUD_CDC_EP_BUFSIZE 64
+
+// UAC 1.0 Audio: 4-ch 48kHz OUT (Speaker L/R + Haptics L/R) + 1-ch 48kHz IN (Mic)
+#define CFG_TUD_AUDIO_FUNC_1_N_AS_INT 2
+#define CFG_TUD_AUDIO_FUNC_1_CTRL_BUF_SZ 64
+
+#define CFG_TUD_AUDIO_ENABLE_EP_OUT 1
+#define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_RX 4
+#define CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE_RX 48000
+#define CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_RX 2
+#define CFG_TUD_AUDIO_FUNC_1_RESOLUTION_RX 16
+#define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SZ_MAX 392
+#define CFG_TUD_AUDIO_FUNC_1_EP_OUT_SW_BUF_SZ 3072
+
+#define CFG_TUD_AUDIO_ENABLE_EP_IN 1
+#define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX 1
+#define CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE_TX 48000
+#define CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX 2
+#define CFG_TUD_AUDIO_FUNC_1_RESOLUTION_TX 16
+#define CFG_TUD_AUDIO_FUNC_1_EP_IN_SZ_MAX 96
+#define CFG_TUD_AUDIO_FUNC_1_EP_IN_SW_BUF_SZ 512
+
+#define CFG_TUD_AUDIO_ENABLE_FEEDBACK_EP 0
+#define CFG_TUD_AUDIO_ENABLE_INTERRUPT_EP 0
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
