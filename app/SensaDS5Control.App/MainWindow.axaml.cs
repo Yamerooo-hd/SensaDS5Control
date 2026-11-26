@@ -21,9 +21,19 @@ public partial class MainWindow : Window
     private volatile bool _logDirty;
     private int _uiTelemetryPending;
     private readonly DispatcherTimer _logFlushTimer;
+    private readonly DispatcherTimer _hotplugTimer;
+    private int _hotplugBusy;
     private bool _wasMicBtn;
     private volatile bool _syncMicButton = true;
     private bool _loadingUi = true;
+    private bool _userManuallyDisconnected;
+    private bool _switchingUsbMode;
+    private bool _wasPicoPresent;
+    private int _activeNavIndex;
+
+    private static readonly IBrush DotGreen = new SolidColorBrush(Color.Parse("#22C55E"));
+    private static readonly IBrush DotAmber = new SolidColorBrush(Color.Parse("#F59E0B"));
+    private static readonly IBrush DotGray = new SolidColorBrush(Color.Parse("#64748B"));
 
     public MainWindow()
     {
@@ -37,13 +47,41 @@ public partial class MainWindow : Window
         _logFlushTimer.Tick += (_, _) => FlushConsoleLogIfDirty();
         _logFlushTimer.Start();
 
+        _hotplugTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _hotplugTimer.Tick += (_, _) => _ = PollPicoUsbHotplugAsync();
+        _hotplugTimer.Start();
+
         _pico.ConnectionChanged += OnPicoConnectionChanged;
         _pico.TelemetryReceived += OnTelemetryReceived;
         _pico.LogLineReceived += OnLogReceived;
 
-        RefreshPorts();
         UpdateMicButtonText();
-        AutoConnectFirstPort();
+        _ = PollPicoUsbHotplugAsync();
+    }
+
+    private void OnNavClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string tagStr || !int.TryParse(tagStr, out int idx))
+            return;
+        SelectNavPage(idx);
+    }
+
+    private void SelectNavPage(int idx)
+    {
+        _activeNavIndex = idx;
+        Page0.IsVisible = idx == 0;
+        Page1.IsVisible = idx == 1;
+        Page2.IsVisible = idx == 2;
+        Page3.IsVisible = idx == 3;
+        Page4.IsVisible = idx == 4;
+        Page5.IsVisible = idx == 5;
+
+        Button[] navBtns = [NavDashBtn, NavTesterBtn, NavHapticsBtn, NavTriggersBtn, NavLightingBtn, NavConsoleBtn];
+        for (int i = 0; i < navBtns.Length; i++)
+        {
+            if (i == idx) navBtns[i].Classes.Add("active");
+            else navBtns[i].Classes.Remove("active");
+        }
     }
 
     private void PopulateTriggerCombos()
@@ -115,32 +153,78 @@ public partial class MainWindow : Window
         _mouse.GyroSensitivity = _settings.GyroSens;
     }
 
-    private void RefreshPorts()
+    private async Task PollPicoUsbHotplugAsync()
     {
-        var ports = _platform.DiscoverPicoComPorts();
-        PortCombo.ItemsSource = ports;
-        if (ports.Count > 0) PortCombo.SelectedIndex = 0;
-    }
+        if (_switchingUsbMode || Interlocked.CompareExchange(ref _hotplugBusy, 1, 0) != 0)
+            return;
 
-    private void AutoConnectFirstPort()
-    {
-        if (PortCombo.SelectedItem is string p)
+        try
         {
-            _pico.Connect(p);
+            var ports = await Task.Run(() => _platform.DiscoverPicoComPorts());
+            var activePort = ports.FirstOrDefault();
+            bool present = activePort != null;
+
+            if (!present)
+            {
+                if (_wasPicoPresent)
+                {
+                    _wasPicoPresent = false;
+                    _userManuallyDisconnected = false; // Allow clean auto-connect on next plug-in
+                }
+                if (_pico.IsConnected || _pico.ActivePortName != null)
+                {
+                    _pico.NotifyUsbRemoved();
+                }
+                return;
+            }
+
+            _wasPicoPresent = true;
+
+            if (_pico.IsConnected)
+            {
+                // If Windows moved the port or old port vanished, drop cleanly
+                if (_pico.ActivePortName != null && !ports.Contains(_pico.ActivePortName, StringComparer.OrdinalIgnoreCase))
+                {
+                    _pico.NotifyUsbRemoved();
+                }
+                return;
+            }
+
+            if (!_userManuallyDisconnected)
+            {
+                await _pico.ConnectAsync(activePort!, wakeController: false);
+            }
+        }
+        catch { }
+        finally
+        {
+            Interlocked.Exchange(ref _hotplugBusy, 0);
         }
     }
 
-    private void OnConnectClick(object? sender, RoutedEventArgs e)
+    private async void OnConnectClick(object? sender, RoutedEventArgs e)
     {
+        if (_switchingUsbMode) return;
+
         if (_pico.IsConnected)
         {
-            _pico.Disconnect();
+            _userManuallyDisconnected = true;
+            _pico.Disconnect("Controller disconnected by user", disconnectController: true);
             return;
         }
-        RefreshPorts();
-        if (PortCombo.SelectedItem is string p)
+
+        _userManuallyDisconnected = false;
+        StatusText.Text = "Connecting to Pico...";
+        var ports = await Task.Run(() => _platform.DiscoverPicoComPorts());
+        if (ports.Count > 0)
         {
-            _pico.Connect(p);
+            await _pico.ConnectAsync(ports[0], wakeController: true);
+        }
+        else
+        {
+            StatusText.Text = "Pico USB Not Found";
+            SubStatusText.Text = "Plug Pico 2 W into USB (auto-connects immediately)";
+            StatusDot.Fill = DotGray;
         }
     }
 
@@ -148,12 +232,38 @@ public partial class MainWindow : Window
     {
         Dispatcher.UIThread.Post(() =>
         {
-            ConnectBtn.Content = connected ? "Disconnect" : "Connect";
-            StatusText.Text = connected ? $"Connected on {portOrError}" : "Disconnected";
-            SubStatusText.Text = connected
-                ? "Streaming 30 Hz live telemetry"
-                : (string.IsNullOrEmpty(portOrError) ? "Plug Pico 2 W into USB and click Connect" : portOrError);
-            if (connected) PushSavedProfileToPico();
+            if (connected)
+            {
+                ConnectBtn.Content = "Disconnect Controller";
+                ConnectBtn.Classes.Remove("accent");
+                ConnectBtn.Classes.Add("danger");
+                StatusDot.Fill = DotAmber;
+                StatusText.Text = $"Pico Connected ({portOrError})";
+                SubStatusText.Text = "Waiting for Sensa Bluetooth handshake...";
+                PortBadgeTxt.Text = $"Port: {portOrError}";
+                PushSavedProfileToPico();
+            }
+            else
+            {
+                ConnectBtn.Content = "Connect";
+                ConnectBtn.Classes.Remove("danger");
+                ConnectBtn.Classes.Add("accent");
+                StatusDot.Fill = DotGray;
+                StatusText.Text = _switchingUsbMode ? "Rebooting Pico USB..." : "Disconnected";
+                SubStatusText.Text = string.IsNullOrEmpty(portOrError) ? "Waiting for Pico USB..." : portOrError;
+                PortBadgeTxt.Text = "USB: Offline";
+                BatteryBadgeTxt.Text = "Bat: --";
+                DashBridgeInfo.Text = "Bridge: Disconnected";
+                DashBatteryInfo.Text = "Battery: --";
+                DashReportMode.Text = "Input Mode: --";
+                HapticLBar.Value = 0;
+                HapticRBar.Value = 0;
+                L2Bar.Value = 0;
+                R2Bar.Value = 0;
+                ButtonsActiveTxt.Text = "Pressed: (none)";
+                DashControllerDiagram.ResetDisconnected();
+                TesterControllerDiagram.ResetDisconnected();
+            }
         });
     }
 
@@ -182,6 +292,8 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             Interlocked.Exchange(ref _uiTelemetryPending, 0);
+            if (!_pico.IsConnected) return;
+
             if (micPressedEdge)
             {
                 bool nextMute = !_platform.GetSystemMicMuted();
@@ -191,64 +303,78 @@ public partial class MainWindow : Window
                 _pico.SetMicLed(_settings.MicLedMode);
                 UpdateMicButtonText();
             }
-            DashBridgeInfo.Text = $"Bridge: Mode {s.Mode} | 0x36 tx={s.Tx0x36} | Haptic Gain {s.HapticGainPct}%";
+
+            string usbShort = s.UsbMode == 1 ? "Xbox 360" : "DualSense";
+            StatusDot.Fill = s.BtControllerReady ? DotGreen : DotAmber;
+            StatusText.Text = s.BtControllerReady ? $"Sensa Active ({usbShort})" : "Pico Ready — Turn on Sensa";
+            PortBadgeTxt.Text = $"{_pico.ActivePortName ?? "USB"} • {usbShort}";
+            BatteryBadgeTxt.Text = s.FullMode0x31 ? $"Bat: {s.BatteryPct}%" : (s.BtControllerReady ? "Short 0x01" : "BT Idle");
+
+            DashBridgeInfo.Text = $"Bridge: Mode {s.Mode} | 0x36 tx={s.Tx0x36} | Gain {s.HapticGainPct}% | {usbShort}";
             DashBatteryInfo.Text = s.FullMode0x31 ? $"Battery: {s.BatteryPct}% (charging={s.ChargingState})" : "Battery: (waiting for 0x31 full mode)";
-            DashReportMode.Text = s.FullMode0x31 ? "Input Mode: Full 0x31 (Gyro + Touchpad active)" : "Input Mode: Short 0x01 (Sticks/Buttons/Triggers)";
-            UsbModeStatus.Text = s.UsbMode switch
+            DashReportMode.Text = s.FullMode0x31 ? "Input Mode: Full 0x31 (Gyro + Touchpad active)" : (s.BtControllerReady ? "Input Mode: Short 0x01" : "Bluetooth Controller Disconnected");
+            UsbModeStatus.Text = s.UsbMode == 1
+                ? "Active USB Personality: Xbox 360 XInput Controller (1209:DB05)"
+                : "Active USB Personality: DualSense Wireless Controller (054C:0CE6)";
+            SubStatusText.Text = s.BtControllerReady
+                ? $"{(s.FullMode0x31 ? "Full 0x31" : "Short 0x01")} | tx0x36={s.Tx0x36} | Peak L={s.PeakHapticL:0.0}% R={s.PeakHapticR:0.0}%"
+                : "Press PS button on Sensa to reconnect wireless controller";
+
+            // Live Interactive Vector Controller Diagrams
+            DashControllerDiagram.UpdateTelemetry(s, _settings.LedR, _settings.LedG, _settings.LedB, _settings.LedOverride);
+            if (_activeNavIndex == 1)
             {
-                1 => "Active USB Personality: Xbox 360 XInput Controller (1209:DB05)",
-                _ => "Active USB Personality: DualSense Wireless Controller (054C:0CE6)"
-            };
-            SubStatusText.Text = $"{(s.FullMode0x31 ? "Full 0x31" : "Short 0x01")} | tx0x36={s.Tx0x36} | Peak L={s.PeakHapticL:0.0}% R={s.PeakHapticR:0.0}%";
+                TesterControllerDiagram.UpdateTelemetry(s, _settings.LedR, _settings.LedG, _settings.LedB, _settings.LedOverride);
 
-            Canvas.SetLeft(LeftStickDot, (s.Lx / 255.0) * 104 + 2);
-            Canvas.SetTop(LeftStickDot, (s.Ly / 255.0) * 104 + 2);
-            LeftStickTxt.Text = $"{s.Lx}, {s.Ly}";
+                Canvas.SetLeft(LeftStickDot, (s.Lx / 255.0) * 104 + 2);
+                Canvas.SetTop(LeftStickDot, (s.Ly / 255.0) * 104 + 2);
+                LeftStickTxt.Text = $"{s.Lx}, {s.Ly}";
 
-            Canvas.SetLeft(RightStickDot, (s.Rx / 255.0) * 104 + 2);
-            Canvas.SetTop(RightStickDot, (s.Ry / 255.0) * 104 + 2);
-            RightStickTxt.Text = $"{s.Rx}, {s.Ry}";
+                Canvas.SetLeft(RightStickDot, (s.Rx / 255.0) * 104 + 2);
+                Canvas.SetTop(RightStickDot, (s.Ry / 255.0) * 104 + 2);
+                RightStickTxt.Text = $"{s.Rx}, {s.Ry}";
 
-            L2Bar.Value = s.L2;
-            R2Bar.Value = s.R2;
+                L2Bar.Value = s.L2;
+                R2Bar.Value = s.R2;
+
+                var pressed = new List<string>();
+                if (s.Cross) pressed.Add("Cross");
+                if (s.Circle) pressed.Add("Circle");
+                if (s.Square) pressed.Add("Square");
+                if (s.Triangle) pressed.Add("Triangle");
+                if (s.L1) pressed.Add("L1");
+                if (s.R1) pressed.Add("R1");
+                if (s.L3) pressed.Add("L3");
+                if (s.R3) pressed.Add("R3");
+                if (s.Create) pressed.Add("Create");
+                if (s.Options) pressed.Add("Options");
+                if (s.Ps) pressed.Add("PS");
+                if (s.TouchpadClick) pressed.Add("TP-Click");
+                if (s.MicMuteBtn) pressed.Add("Mic");
+                if (s.DPad != 8) pressed.Add($"DPad({s.DPad})");
+                ButtonsActiveTxt.Text = pressed.Count > 0 ? "Pressed: " + string.Join(", ", pressed) : "Pressed: (none)";
+                RawBytesTxt.Text = $"Raw Btn Bytes: {s.Btn0:X2} {s.Btn1:X2} {s.Btn2:X2} {s.Btn3:X2}";
+
+                GyroTxt.Text = $"Gyro  (X,Y,Z): {s.GyroX,6}, {s.GyroY,6}, {s.GyroZ,6}";
+                AccelTxt.Text = $"Accel (X,Y,Z): {s.AccelX,6}, {s.AccelY,6}, {s.AccelZ,6}";
+
+                Touch0Dot.IsVisible = s.Touch0Down;
+                if (s.Touch0Down)
+                {
+                    Canvas.SetLeft(Touch0Dot, Math.Clamp(s.Touch0X / 1920.0 * 214, 0, 214));
+                    Canvas.SetTop(Touch0Dot, Math.Clamp(s.Touch0Y / 1080.0 * 104, 0, 104));
+                }
+                Touch1Dot.IsVisible = s.Touch1Down;
+                if (s.Touch1Down)
+                {
+                    Canvas.SetLeft(Touch1Dot, Math.Clamp(s.Touch1X / 1920.0 * 214, 0, 214));
+                    Canvas.SetTop(Touch1Dot, Math.Clamp(s.Touch1Y / 1080.0 * 104, 0, 104));
+                }
+                TouchTxt.Text = $"Touch 0: {(s.Touch0Down ? $"{s.Touch0X},{s.Touch0Y}" : "--")} | Touch 1: {(s.Touch1Down ? $"{s.Touch1X},{s.Touch1Y}" : "--")}";
+            }
 
             HapticLBar.Value = Math.Clamp(s.PeakHapticL, 0, 100);
             HapticRBar.Value = Math.Clamp(s.PeakHapticR, 0, 100);
-
-            var pressed = new List<string>();
-            if (s.Cross) pressed.Add("Cross");
-            if (s.Circle) pressed.Add("Circle");
-            if (s.Square) pressed.Add("Square");
-            if (s.Triangle) pressed.Add("Triangle");
-            if (s.L1) pressed.Add("L1");
-            if (s.R1) pressed.Add("R1");
-            if (s.L3) pressed.Add("L3");
-            if (s.R3) pressed.Add("R3");
-            if (s.Create) pressed.Add("Create");
-            if (s.Options) pressed.Add("Options");
-            if (s.Ps) pressed.Add("PS");
-            if (s.TouchpadClick) pressed.Add("TP-Click");
-            if (s.MicMuteBtn) pressed.Add("Mic");
-            if (s.DPad != 8) pressed.Add($"DPad({s.DPad})");
-            ButtonsActiveTxt.Text = pressed.Count > 0 ? "Pressed: " + string.Join(", ", pressed) : "Pressed: (none)";
-            RawBytesTxt.Text = $"Raw Btn Bytes: {s.Btn0:X2} {s.Btn1:X2} {s.Btn2:X2} {s.Btn3:X2}";
-
-            GyroTxt.Text = $"Gyro (X, Y, Z): {s.GyroX}, {s.GyroY}, {s.GyroZ}";
-            AccelTxt.Text = $"Accel (X, Y, Z): {s.AccelX}, {s.AccelY}, {s.AccelZ}";
-
-            Touch0Dot.IsVisible = s.Touch0Down;
-            if (s.Touch0Down)
-            {
-                Canvas.SetLeft(Touch0Dot, Math.Clamp(s.Touch0X / 1920.0 * 306, 0, 306));
-                Canvas.SetTop(Touch0Dot, Math.Clamp(s.Touch0Y / 1080.0 * 126, 0, 126));
-            }
-            Touch1Dot.IsVisible = s.Touch1Down;
-            if (s.Touch1Down)
-            {
-                Canvas.SetLeft(Touch1Dot, Math.Clamp(s.Touch1X / 1920.0 * 306, 0, 306));
-                Canvas.SetTop(Touch1Dot, Math.Clamp(s.Touch1Y / 1080.0 * 126, 0, 126));
-            }
-            TouchTxt.Text = $"Touch 0: {(s.Touch0Down ? $"{s.Touch0X},{s.Touch0Y}" : "--")} | Touch 1: {(s.Touch1Down ? $"{s.Touch1X},{s.Touch1Y}" : "--")}";
         });
     }
 
@@ -442,27 +568,48 @@ public partial class MainWindow : Window
 
     private async Task SwitchUsbIdentityAsync(string cliMode, string label)
     {
+        if (_switchingUsbMode) return;
         if (!_pico.IsConnected)
         {
-            UsbModeStatus.Text = "Connect to Pico COM port first.";
+            UsbModeStatus.Text = "Waiting for Pico USB connection first.";
             return;
         }
-        UsbModeStatus.Text = $"Switching USB personality to {label}...";
-        SubStatusText.Text = UsbModeStatus.Text;
-        _pico.SetUsbMode(cliMode);
-        await Task.Delay(250);
-        _pico.Disconnect($"Rebooting into {label}...");
-        for (int i = 0; i < 12; i++)
+
+        _switchingUsbMode = true;
+        _userManuallyDisconnected = false;
+        BtnUsbDs5.IsEnabled = false;
+        BtnUsbX360.IsEnabled = false;
+
+        try
         {
-            await Task.Delay(600);
-            RefreshPorts();
-            if (PortCombo.SelectedItem is string p && _pico.Connect(p))
+            UsbModeStatus.Text = $"Switching USB personality to {label}...";
+            StatusDot.Fill = DotAmber;
+            StatusText.Text = "Rebooting Pico USB...";
+            SubStatusText.Text = $"Waiting for {label} enumeration...";
+
+            _pico.SetUsbMode(cliMode);
+            await Task.Delay(120);
+            _pico.Disconnect($"Rebooting into {label}...", disconnectController: false);
+            await Task.Delay(900);
+
+            for (int i = 0; i < 18; i++)
             {
-                UsbModeStatus.Text = $"Active USB Personality: {label}";
-                return;
+                await Task.Delay(450);
+                var ports = await Task.Run(() => _platform.DiscoverPicoComPorts());
+                if (ports.Count > 0 && await _pico.ConnectAsync(ports[0], wakeController: false))
+                {
+                    UsbModeStatus.Text = $"Active USB Personality: {label}";
+                    return;
+                }
             }
+            UsbModeStatus.Text = $"Switched to {label} — re-attaching automatically when Windows finishes.";
         }
-        UsbModeStatus.Text = $"Switched to {label} — click Connect if COM port changed.";
+        finally
+        {
+            _switchingUsbMode = false;
+            BtnUsbDs5.IsEnabled = true;
+            BtnUsbX360.IsEnabled = true;
+        }
     }
 
     private async void OnUpdateAppClick(object? sender, RoutedEventArgs e)
@@ -560,6 +707,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _hotplugTimer.Stop();
         _logFlushTimer.Stop();
         _pico.Dispose();
         base.OnClosed(e);

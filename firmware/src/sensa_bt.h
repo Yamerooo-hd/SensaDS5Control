@@ -12,6 +12,7 @@ void bt_poll();
 void bt_start_pairing();
 void bt_forget_all();
 void bt_disconnect_now();
+void bt_reconnect_bonded();
 bool bt_start_sdp_discovery();
 
 void bt_notify_host_output();

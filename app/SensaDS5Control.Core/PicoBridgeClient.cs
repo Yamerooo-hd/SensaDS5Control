@@ -6,9 +6,9 @@ namespace SensaDS5Control.Core;
 public sealed class PicoBridgeClient : IDisposable
 {
     private SerialPort? _port;
-    private readonly object _txLock = new();
     private CancellationTokenSource? _rxCts;
-    private Task? _rxTask;
+    private readonly object _txLock = new();
+    private long _sessionGen;
 
     public bool IsConnected => _port is { IsOpen: true };
     public string? ActivePortName { get; private set; }
@@ -17,58 +17,135 @@ public sealed class PicoBridgeClient : IDisposable
     public event Action<TelemetrySample>? TelemetryReceived;
     public event Action<string>? LogLineReceived;
 
-    public bool Connect(string portName)
+    public async Task<bool> ConnectAsync(string portName, bool wakeController = false)
     {
-        Disconnect();
-        try
+        long gen = Interlocked.Increment(ref _sessionGen);
+        CloseCurrentPort(null, sendDisconnect: false);
+
+        return await Task.Run(async () =>
         {
-            var sp = new SerialPort(portName, 115200, Parity.None, 8, StopBits.One)
+            Exception? lastEx = null;
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                Handshake = Handshake.None,
-                DtrEnable = true,
-                RtsEnable = true,
-                ReadTimeout = 200,
-                WriteTimeout = 500,
-                Encoding = Encoding.ASCII,
-                NewLine = "\n"
-            };
-            sp.Open();
-            sp.DtrEnable = true;
-            sp.RtsEnable = true;
-            _port = sp;
-            ActivePortName = portName;
-            _rxCts = new CancellationTokenSource();
-            _rxTask = Task.Run(() => ReadLoop(sp, _rxCts.Token));
-            ConnectionChanged?.Invoke(true, portName);
-            SendCommand("tele 1");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            var err = $"Connect failed on {portName}: {ex.Message}";
-            LogLineReceived?.Invoke($"[APP] {err}");
-            Disconnect(err);
+                if (Volatile.Read(ref _sessionGen) != gen) return false;
+                try
+                {
+                    var sp = new SerialPort(portName, 115200, Parity.None, 8, StopBits.One)
+                    {
+                        Handshake = Handshake.None,
+                        DtrEnable = true,
+                        RtsEnable = true,
+                        ReadTimeout = 250,
+                        WriteTimeout = 350,
+                        Encoding = Encoding.ASCII,
+                        NewLine = "\n"
+                    };
+                    sp.Open();
+                    sp.DtrEnable = true;
+                    sp.RtsEnable = true;
+
+                    if (Volatile.Read(ref _sessionGen) != gen)
+                    {
+                        DisposePortOffThread(sp);
+                        return false;
+                    }
+
+                    var cts = new CancellationTokenSource();
+                    _port = sp;
+                    _rxCts = cts;
+                    ActivePortName = portName;
+
+                    ConnectionChanged?.Invoke(true, portName);
+                    _ = Task.Run(() => ReadLoopAsync(gen, sp, cts.Token));
+                    SendCommand("tele 1");
+                    if (wakeController) SendCommand("reconnect");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    lastEx = ex;
+                    await Task.Delay(180);
+                }
+            }
+
+            if (Volatile.Read(ref _sessionGen) == gen)
+            {
+                var err = $"Connect failed on {portName}: {lastEx?.Message}";
+                LogLineReceived?.Invoke($"[APP] {err}");
+                ConnectionChanged?.Invoke(false, err);
+            }
             return false;
+        });
+    }
+
+    public void Disconnect(string? reason = null, bool disconnectController = false)
+    {
+        Interlocked.Increment(ref _sessionGen);
+        CloseCurrentPort(reason, disconnectController);
+    }
+
+    public void NotifyUsbRemoved()
+    {
+        if (_port == null && ActivePortName == null) return;
+        Disconnect("Pico USB unplugged", disconnectController: false);
+    }
+
+    private void CloseCurrentPort(string? reason, bool sendDisconnect)
+    {
+        var cts = Interlocked.Exchange(ref _rxCts, null);
+        try { cts?.Cancel(); } catch { }
+
+        var sp = Interlocked.Exchange(ref _port, null);
+        var wasOpen = sp != null || ActivePortName != null;
+        ActivePortName = null;
+
+        if (sp != null)
+        {
+            Task.Run(() =>
+            {
+                if (sendDisconnect)
+                {
+                    try
+                    {
+                        if (sp.IsOpen)
+                        {
+                            lock (_txLock)
+                            {
+                                SendRaw(sp, "disconnect");
+                                SendRaw(sp, "tele 0");
+                            }
+                            Thread.Sleep(55);
+                        }
+                    }
+                    catch { }
+                }
+                else if (reason == null)
+                {
+                    try
+                    {
+                        if (sp.IsOpen)
+                        {
+                            lock (_txLock) { SendRaw(sp, "tele 0"); }
+                        }
+                    }
+                    catch { }
+                }
+                DisposePortSafe(sp);
+            });
+        }
+
+        if (wasOpen)
+        {
+            ConnectionChanged?.Invoke(false, reason);
         }
     }
 
-    public void Disconnect(string? reason = null)
+    private static void DisposePortOffThread(SerialPort sp) => Task.Run(() => DisposePortSafe(sp));
+
+    private static void DisposePortSafe(SerialPort sp)
     {
-        try { _rxCts?.Cancel(); } catch { }
-        var sp = _port;
-        _port = null;
-        ActivePortName = null;
-        if (sp != null)
-        {
-            if (reason == null)
-            {
-                try { if (sp.IsOpen) SendRaw(sp, "btmon 0"); } catch { }
-                try { if (sp.IsOpen) SendRaw(sp, "tele 0"); } catch { }
-            }
-            try { sp.Close(); } catch { }
-            try { sp.Dispose(); } catch { }
-        }
-        ConnectionChanged?.Invoke(false, reason);
+        try { sp.Close(); } catch { }
+        try { sp.Dispose(); } catch { }
     }
 
     public void SendCommand(string cmd)
@@ -79,7 +156,7 @@ public sealed class PicoBridgeClient : IDisposable
         {
             try
             {
-                SendRaw(sp, cmd);
+                if (sp.IsOpen) SendRaw(sp, cmd);
             }
             catch (Exception ex)
             {
@@ -94,15 +171,16 @@ public sealed class PicoBridgeClient : IDisposable
         sp.Write(bytes, 0, bytes.Length);
     }
 
-    private void ReadLoop(SerialPort sp, CancellationToken ct)
+    private async Task ReadLoopAsync(long gen, SerialPort sp, CancellationToken ct)
     {
         var sb = new StringBuilder(256);
         var buf = new byte[512];
-        while (!ct.IsCancellationRequested && sp.IsOpen)
+        while (!ct.IsCancellationRequested && Volatile.Read(ref _sessionGen) == gen && sp.IsOpen)
         {
             try
             {
-                int n = sp.Read(buf, 0, buf.Length);
+                int n = await sp.BaseStream.ReadAsync(buf.AsMemory(0, buf.Length), ct);
+                if (n <= 0) break;
                 for (int i = 0; i < n; i++)
                 {
                     char c = (char)buf[i];
@@ -128,14 +206,18 @@ public sealed class PicoBridgeClient : IDisposable
                     }
                 }
             }
+            catch (OperationCanceledException) { break; }
             catch (TimeoutException) { }
             catch (Exception ex)
             {
-                if (!ct.IsCancellationRequested)
+                if (!ct.IsCancellationRequested && Volatile.Read(ref _sessionGen) == gen)
                 {
-                    var err = $"Serial read error: {ex.Message}";
-                    try { LogLineReceived?.Invoke($"[APP] {err}"); } catch { }
-                    Disconnect(err);
+                    var err = $"Connection lost: {ex.Message}";
+                    LogLineReceived?.Invoke($"[APP] {err}");
+                    if (Interlocked.CompareExchange(ref _sessionGen, gen + 1, gen) == gen)
+                    {
+                        CloseCurrentPort(err, sendDisconnect: false);
+                    }
                 }
                 break;
             }
@@ -158,5 +240,5 @@ public sealed class PicoBridgeClient : IDisposable
     public void SetUsbMode(string mode) => SendCommand($"usbmode {mode}");
     public void EnterBootsel() => SendCommand("bootsel");
 
-    public void Dispose() => Disconnect();
+    public void Dispose() => Disconnect(reason: "Closing", disconnectController: false);
 }

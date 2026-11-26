@@ -1078,7 +1078,7 @@ bool bt_init() {
     l2cap_register_service(&l2cap_packet_handler, kPsmHidControl, kMtuControl, LEVEL_2);
     l2cap_register_service(&l2cap_packet_handler, kPsmHidInterrupt, kMtuInterrupt, LEVEL_2);
     l2cap_init();
-    gap_set_link_supervision_timeout(8000);
+    gap_set_link_supervision_timeout(2400); // 1.5s supervision timeout for crisp unplug disconnect
 
     gap_ssp_set_enable(true);
     gap_secure_connections_enable(true);
@@ -1127,7 +1127,31 @@ void bt_disconnect_now() {
     inquiry_active = false;
     if (acl_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(acl_handle);
+        console_printf("[BT] Disconnecting controller ACL...\n");
     }
+}
+
+void bt_reconnect_bonded() {
+    if (acl_handle != HCI_CON_HANDLE_INVALID || outbound_connecting || pairing_window) return;
+    refresh_bonded_key();
+    if (!has_bonded_addr) {
+        console_printf("[BT] No bonded controller found -> starting pairing scan\n");
+        bt_start_pairing();
+        return;
+    }
+    bd_addr_copy(peer_addr, bonded_addr);
+    peer_addr_valid = true;
+    outbound_connecting = true;
+    uint8_t st = hci_send_cmd(
+        &hci_create_connection,
+        bonded_addr,
+        hci_usable_acl_packet_types(),
+        2,
+        0,
+        0,
+        1
+    );
+    console_printf("[BT] Reconnecting bonded %s -> status=0x%02X\n", bd_addr_to_str(bonded_addr), st);
 }
 
 bool bt_start_sdp_discovery() {
@@ -1459,7 +1483,7 @@ void bt_poll() {
         uint16_t t1y = static_cast<uint16_t>((b[38] >> 4) | (b[39] << 4));
         uint8_t bat = std::min<uint8_t>(b[52] & 0x0Fu, 10) * 10;
         uint8_t chg = (b[52] >> 4) & 0x0Fu;
-        console_printf("TELE,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%u,%u,%u,%u,%u\n",
+        console_printf("TELE,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%u,%u,%u,%u,%u,%u\n",
                        rx_0x31_seen ? 1u : 0u,
                        b[0], b[1], b[2], b[3], b[4], b[5],
                        b[7], b[8], b[9], b[10],
@@ -1474,7 +1498,8 @@ void bt_poll() {
                        mic_led_override_mode,
                        static_cast<unsigned>(g_usb_mode),
                        static_cast<unsigned>(g_dsp_config.impulse_mode),
-                       g_dsp_config.impulse_strength_pct);
+                       g_dsp_config.impulse_strength_pct,
+                       g_telemetry.bt_interrupt_ready ? 1u : 0u);
     }
 }
 

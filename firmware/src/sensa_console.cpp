@@ -229,6 +229,8 @@ void handle_command(char *line) {
         bt_forget_all();
     } else if (eq_ci(cmd, "disconnect")) {
         bt_disconnect_now();
+    } else if (eq_ci(cmd, "reconnect")) {
+        bt_reconnect_bonded();
     } else if (eq_ci(cmd, "reboot")) {
         console_printf("[SYS] Rebooting...\n");
         console_poll();
@@ -296,7 +298,7 @@ void console_print_help() {
     console_printf("  imptrigtest [pct] [ms] - Pulse L2+R2 0x26 trigger vibration test\n");
     console_printf("  usbmode <ds5|x360>  - Switch USB identity & soft-reboot\n");
     console_printf("  tele <0|1> | btmon <0|1> | unlock <0..4> | dbg\n");
-    console_printf("  pair | forget | disconnect | reboot | bootsel\n\n");
+    console_printf("  pair | forget | disconnect | reconnect | reboot | bootsel\n\n");
 }
 
 void console_print_status() {

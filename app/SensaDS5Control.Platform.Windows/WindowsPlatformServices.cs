@@ -1,47 +1,71 @@
-using System.IO.Ports;
 using System.Runtime.InteropServices;
-using Microsoft.Win32;
+using System.Text;
 using SensaDS5Control.Core;
 
 namespace SensaDS5Control.Platform.Windows;
 
 public sealed class WindowsPlatformServices : IPlatformServices
 {
+    private static Guid GuidDevInterfaceComPort = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
+    private const uint DIGCF_PRESENT = 0x02;
+    private const uint DIGCF_DEVICEINTERFACE = 0x10;
+    private const uint DICS_FLAG_GLOBAL = 0x01;
+    private const uint DIREG_DEV = 0x01;
+    private const int KEY_READ = 0x20019;
+
     public IReadOnlyList<string> DiscoverPicoComPorts()
     {
-        var preferred = new List<string>();
+        var found = new List<string>();
+        nint devInfo = SetupDiGetClassDevs(ref GuidDevInterfaceComPort, null, nint.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+        if (devInfo == nint.Zero || devInfo == new nint(-1))
+        {
+            return found;
+        }
+
         try
         {
-            using var usb = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Enum\USB");
-            if (usb != null)
+            var devData = new SP_DEVINFO_DATA { cbSize = (uint)Marshal.SizeOf<SP_DEVINFO_DATA>() };
+            var idBuf = new char[512];
+            for (uint idx = 0; SetupDiEnumDeviceInfo(devInfo, idx, ref devData); idx++)
             {
-                foreach (var vidPid in usb.GetSubKeyNames())
+                if (!SetupDiGetDeviceInstanceId(devInfo, ref devData, idBuf, idBuf.Length, out int len) || len <= 0)
+                    continue;
+
+                var instanceId = new string(idBuf, 0, Math.Min(len, idBuf.Length)).TrimEnd('\0');
+                bool isPico = instanceId.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase) ||
+                              instanceId.Contains("VID_1209&PID_DB05", StringComparison.OrdinalIgnoreCase) ||
+                              instanceId.Contains("VID_1209&PID_DB06", StringComparison.OrdinalIgnoreCase) ||
+                              instanceId.Contains("VID_2E8A", StringComparison.OrdinalIgnoreCase);
+                if (!isPico) continue;
+
+                nint hKey = SetupDiOpenDevRegKey(devInfo, ref devData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+                if (hKey == nint.Zero || hKey == new nint(-1)) continue;
+                try
                 {
-                    if (!vidPid.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase) &&
-                        !vidPid.Contains("VID_1209", StringComparison.OrdinalIgnoreCase) &&
-                        !vidPid.Contains("VID_045E", StringComparison.OrdinalIgnoreCase) &&
-                        !vidPid.Contains("VID_2E8A", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    using var devKey = usb.OpenSubKey(vidPid);
-                    if (devKey == null) continue;
-                    foreach (var inst in devKey.GetSubKeyNames())
+                    var data = new byte[128];
+                    uint dataSize = (uint)data.Length;
+                    if (RegQueryValueEx(hKey, "PortName", nint.Zero, out _, data, ref dataSize) == 0 && dataSize >= 4)
                     {
-                        using var devParams = devKey.OpenSubKey($@"{inst}\Device Parameters");
-                        if (devParams?.GetValue("PortName") is string port && port.StartsWith("COM", StringComparison.OrdinalIgnoreCase))
+                        var port = Encoding.Unicode.GetString(data, 0, (int)dataSize).TrimEnd('\0');
+                        if (port.StartsWith("COM", StringComparison.OrdinalIgnoreCase) &&
+                            !found.Contains(port, StringComparer.OrdinalIgnoreCase))
                         {
-                            preferred.Add(port);
+                            found.Add(port);
                         }
                     }
                 }
+                finally
+                {
+                    RegCloseKey(hKey);
+                }
             }
         }
-        catch { }
+        finally
+        {
+            SetupDiDestroyDeviceInfoList(devInfo);
+        }
 
-        var all = SerialPort.GetPortNames().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var ordered = preferred.Where(p => all.Contains(p, StringComparer.OrdinalIgnoreCase))
-            .Concat(all.Where(p => !preferred.Contains(p, StringComparer.OrdinalIgnoreCase)))
-            .ToList();
-        return ordered;
+        return found;
     }
 
     public void MoveMouseRelative(int dx, int dy) => SendMouse(0x0001, dx, dy, 0);
@@ -104,6 +128,36 @@ public sealed class WindowsPlatformServices : IPlatformServices
         throw new TimeoutException("Timed out waiting for RP2350 BOOTSEL drive. Hold BOOTSEL and replug Pico if needed.");
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SP_DEVINFO_DATA
+    {
+        public uint cbSize;
+        public Guid ClassGuid;
+        public uint DevInst;
+        public nint Reserved;
+    }
+
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern nint SetupDiGetClassDevs(ref Guid classGuid, string? enumerator, nint hwndParent, uint flags);
+
+    [DllImport("setupapi.dll", SetLastError = true)]
+    private static extern bool SetupDiEnumDeviceInfo(nint deviceInfoSet, uint memberIndex, ref SP_DEVINFO_DATA deviceInfoData);
+
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetupDiGetDeviceInstanceId(nint deviceInfoSet, ref SP_DEVINFO_DATA deviceInfoData, [Out] char[] deviceInstanceId, int deviceInstanceIdSize, out int requiredSize);
+
+    [DllImport("setupapi.dll", SetLastError = true)]
+    private static extern nint SetupDiOpenDevRegKey(nint deviceInfoSet, ref SP_DEVINFO_DATA deviceInfoData, uint scope, uint hwProfile, uint keyType, int samDesired);
+
+    [DllImport("setupapi.dll", SetLastError = true)]
+    private static extern bool SetupDiDestroyDeviceInfoList(nint deviceInfoSet);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int RegQueryValueEx(nint hKey, string lpValueName, nint lpReserved, out uint lpType, [Out] byte[] lpData, ref uint lpcbData);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern int RegCloseKey(nint hKey);
+
     private static void SendMouse(uint flags, int dx, int dy, int data)
     {
         var input = new INPUT
@@ -140,7 +194,6 @@ public sealed class WindowsPlatformServices : IPlatformServices
         var enumType = Type.GetTypeFromCLSID(new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E"));
         if (enumType == null) return null;
         var enumerator = (IMMDeviceEnumerator)Activator.CreateInstance(enumType)!;
-        // eCapture = 1, eCommunications = 2 (or eConsole = 0)
         if (enumerator.GetDefaultAudioEndpoint(1, 0, out var dev) != 0 || dev == null)
         {
             Marshal.ReleaseComObject(enumerator);

@@ -1,0 +1,110 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="SensaDS5Control.App.ControllerDiagram">
+  <Viewbox Stretch="Uniform" MaxHeight="310">
+    <Canvas Width="460" Height="280">
+      <!-- L2 / R2 Analog Pressure Badges -->
+      <Border x:Name="L2Badge" Canvas.Left="68" Canvas.Top="6" Width="72" Height="20"
+              CornerRadius="6" Background="#161C29" BorderBrush="#2D374E" BorderThickness="1">
+        <Grid>
+          <Border x:Name="L2Fill" HorizontalAlignment="Left" Width="0" Background="#38BDF8" CornerRadius="5" Opacity="0.65" />
+          <TextBlock x:Name="L2Lbl" Text="L2  0%" FontSize="10" FontWeight="SemiBold"
+                     Foreground="#CBD5E1" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+      <Border x:Name="R2Badge" Canvas.Left="320" Canvas.Top="6" Width="72" Height="20"
+              CornerRadius="6" Background="#161C29" BorderBrush="#2D374E" BorderThickness="1">
+        <Grid>
+          <Border x:Name="R2Fill" HorizontalAlignment="Left" Width="0" Background="#38BDF8" CornerRadius="5" Opacity="0.65" />
+          <TextBlock x:Name="R2Lbl" Text="R2  0%" FontSize="10" FontWeight="SemiBold"
+                     Foreground="#CBD5E1" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+
+      <!-- L1 / R1 Bumpers -->
+      <Border x:Name="BtnL1" Canvas.Left="76" Canvas.Top="31" Width="58" Height="16"
+              CornerRadius="8,8,2,2" Background="#252D40" BorderBrush="#39445E" BorderThickness="1">
+        <TextBlock Text="L1" FontSize="9" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+      <Border x:Name="BtnR1" Canvas.Left="326" Canvas.Top="31" Width="58" Height="16"
+              CornerRadius="8,8,2,2" Background="#252D40" BorderBrush="#39445E" BorderThickness="1">
+        <TextBlock Text="R1" FontSize="9" FontWeight="Bold" Foreground="#94A3B8" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+
+      <!-- DualSense / Cosmic Byte Sensa Body Shell -->
+      <Path Fill="#1E2534" Stroke="#333F59" StrokeThickness="2.2"
+            Data="M 118,45 C 88,45 64,66 51,106 L 24,205 C 15,238 28,263 54,266 C 78,268 98,244 120,196 L 146,182 L 314,182 L 340,196 C 362,244 382,268 406,266 C 432,263 445,238 436,205 L 409,106 C 396,66 372,45 342,45 Z" />
+
+      <!-- Inner Matte Grip Wing Accents -->
+      <Path Fill="#151A26"
+            Data="M 134,180 L 118,200 C 102,235 83,259 60,261 C 69,259 86,236 105,194 L 122,175 Z" />
+      <Path Fill="#151A26"
+            Data="M 326,180 L 342,200 C 358,235 377,259 400,261 C 391,259 374,236 355,194 L 338,175 Z" />
+
+      <!-- RGB Lightbar Glow + Touchpad -->
+      <Border x:Name="LightbarBorder" Canvas.Left="156" Canvas.Top="48" Width="148" Height="78"
+              CornerRadius="6,6,14,14" Background="#0F131C" BorderBrush="#00A0FF" BorderThickness="2.4">
+        <Canvas>
+          <TextBlock Text="TOUCHPAD" FontSize="8" Foreground="#334155" Canvas.Left="46" Canvas.Top="32" />
+          <Ellipse x:Name="TpDot0" Width="11" Height="11" Fill="#22C55E" IsVisible="False" />
+          <Ellipse x:Name="TpDot1" Width="11" Height="11" Fill="#F59E0B" IsVisible="False" />
+        </Canvas>
+      </Border>
+
+      <!-- Create / Options Small Pills -->
+      <Border x:Name="BtnCreate" Canvas.Left="135" Canvas.Top="64" Width="11" Height="22"
+              CornerRadius="5" Background="#293246" BorderBrush="#3E4B68" BorderThickness="1" />
+      <Border x:Name="BtnOptions" Canvas.Left="314" Canvas.Top="64" Width="11" Height="22"
+              CornerRadius="5" Background="#293246" BorderBrush="#3E4B68" BorderThickness="1" />
+
+      <!-- D-Pad -->
+      <Border Canvas.Left="68" Canvas.Top="84" Width="74" Height="74" CornerRadius="37" Background="#161B26" />
+      <Border x:Name="DpadUp" Canvas.Left="95" Canvas.Top="90" Width="20" Height="22" CornerRadius="4" Background="#2A3347" />
+      <Border x:Name="DpadDown" Canvas.Left="95" Canvas.Top="130" Width="20" Height="22" CornerRadius="4" Background="#2A3347" />
+      <Border x:Name="DpadLeft" Canvas.Left="74" Canvas.Top="111" Width="22" Height="20" CornerRadius="4" Background="#2A3347" />
+      <Border x:Name="DpadRight" Canvas.Left="114" Canvas.Top="111" Width="22" Height="20" CornerRadius="4" Background="#2A3347" />
+      <Ellipse Canvas.Left="98" Canvas.Top="114" Width="14" Height="14" Fill="#232B3D" />
+
+      <!-- Face Buttons (Triangle / Circle / Cross / Square) -->
+      <Border Canvas.Left="318" Canvas.Top="84" Width="74" Height="74" CornerRadius="37" Background="#161B26" />
+      <Border x:Name="BtnTriangle" Canvas.Left="344" Canvas.Top="89" Width="22" Height="22" CornerRadius="11"
+              Background="#242C3D" BorderBrush="#4ADE80" BorderThickness="1.3">
+        <TextBlock Text="△" FontSize="11" Foreground="#4ADE80" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+      <Border x:Name="BtnCircle" Canvas.Left="367" Canvas.Top="111" Width="22" Height="22" CornerRadius="11"
+              Background="#242C3D" BorderBrush="#F87171" BorderThickness="1.3">
+        <TextBlock Text="○" FontSize="12" Foreground="#F87171" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+      <Border x:Name="BtnCross" Canvas.Left="344" Canvas.Top="133" Width="22" Height="22" CornerRadius="11"
+              Background="#242C3D" BorderBrush="#60A5FA" BorderThickness="1.3">
+        <TextBlock Text="✕" FontSize="11" Foreground="#60A5FA" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+      <Border x:Name="BtnSquare" Canvas.Left="321" Canvas.Top="111" Width="22" Height="22" CornerRadius="11"
+              Background="#242C3D" BorderBrush="#F472B6" BorderThickness="1.3">
+        <TextBlock Text="□" FontSize="11" Foreground="#F472B6" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+
+      <!-- Left Thumbstick -->
+      <Ellipse x:Name="LeftStickRing" Canvas.Left="137" Canvas.Top="140" Width="54" Height="54"
+               Fill="#121620" Stroke="#2F3950" StrokeThickness="2" />
+      <Ellipse x:Name="LeftStickDome" Canvas.Left="149" Canvas.Top="152" Width="30" Height="30"
+               Fill="#2A3347" Stroke="#4B5978" StrokeThickness="1.5" />
+
+      <!-- Right Thumbstick -->
+      <Ellipse x:Name="RightStickRing" Canvas.Left="269" Canvas.Top="140" Width="54" Height="54"
+               Fill="#121620" Stroke="#2F3950" StrokeThickness="2" />
+      <Ellipse x:Name="RightStickDome" Canvas.Left="281" Canvas.Top="152" Width="30" Height="30"
+               Fill="#2A3347" Stroke="#4B5978" StrokeThickness="1.5" />
+
+      <!-- Center PS Button & Mic Mute + Orange LED -->
+      <Border x:Name="BtnPs" Canvas.Left="219" Canvas.Top="143" Width="22" Height="22" CornerRadius="11"
+              Background="#252E42" BorderBrush="#475569" BorderThickness="1.2">
+        <TextBlock Text="PS" FontSize="8" FontWeight="Bold" Foreground="#CBD5E1" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Border>
+      <Border x:Name="BtnMic" Canvas.Left="222" Canvas.Top="170" Width="16" Height="6" CornerRadius="3"
+              Background="#2C354A" />
+      <Border x:Name="MicLedStrip" Canvas.Left="224" Canvas.Top="179" Width="12" Height="3" CornerRadius="1.5"
+              Background="#334155" />
+    </Canvas>
+  </Viewbox>
+</UserControl>
