@@ -21,7 +21,7 @@ float lpf1_l = 0.0f, lpf2_l = 0.0f;
 float lpf1_r = 0.0f, lpf2_r = 0.0f;
 float decimate_sum_l = 0.0f;
 float decimate_sum_r = 0.0f;
-uint8_t building_block[64]{};
+int8_t building_block[64]{};
 uint8_t building_pair_idx = 0;
 uint8_t decimate_accum_count = 0;
 
@@ -85,6 +85,41 @@ void push_haptic_pair(int8_t l, int8_t r) {
         ready_block_valid = true;
         ready_has_override = false;
         building_pair_idx = 0;
+    }
+}
+
+// Parameterized envelope detector for right (crisp transient) vs left (heavy bass) motors.
+struct SynthChannelParams {
+    float fast_decay;
+    float fast_attack;
+    float slow_decay;
+    float slow_attack;
+    float slow_weight;
+    float mag_weight;
+    float delta_gain;
+    float floor_mult;
+    float min_eff;
+    float max_drive;
+    uint32_t hold_mult_us;
+};
+
+constexpr SynthChannelParams kRightSynthCfg{0.65f, 0.35f, 0.96f, 0.04f, 0.80f, 0.80f, 1.60f, 1.0f, 0.002f, 255.0f, 1000u};
+constexpr SynthChannelParams kLeftSynthCfg{0.80f, 0.20f, 0.97f, 0.03f, 0.90f, 0.90f, 1.20f, 1.6f, 0.004f, 200.0f, 2000u};
+
+void step_synth_channel(SynthChannelParams const &cfg, float mag, float floor_thr, float gain,
+                        uint32_t now_us, float &fast_e, float &slow_e, float &out_lvl, uint32_t &hold_until) {
+    fast_e = fast_e * cfg.fast_decay + mag * cfg.fast_attack;
+    slow_e = slow_e * cfg.slow_decay + mag * cfg.slow_attack;
+    float delta = fast_e - slow_e * cfg.slow_weight;
+    float eff = std::max(mag * cfg.mag_weight, delta * cfg.delta_gain);
+    float eff_floor = floor_thr * cfg.floor_mult;
+    if (eff >= eff_floor && eff > cfg.min_eff) {
+        float drive = (eff - eff_floor * 0.5f) * gain * cfg.max_drive;
+        float target = std::min(std::max(drive, static_cast<float>(g_dsp_config.min_rumble)), cfg.max_drive);
+        if (target >= out_lvl) {
+            out_lvl = target;
+            hold_until = now_us + static_cast<uint32_t>(g_dsp_config.hold_ms) * cfg.hold_mult_us;
+        }
     }
 }
 
@@ -168,56 +203,12 @@ void process_frames(int16_t const *frames, uint32_t count, uint32_t now_us) {
         if (norm_ar > 0.25f) norm_hr = std::max(norm_hr, (norm_ar - 0.25f) * (g_dsp_config.speaker_bass_pct / 100.0f));
     }
 
-    // Dual-envelope adaptive SimFx detector
-    // L/R asymmetry: right motor = fast transient attack (crisp hits),
-    //                left motor  = slow heavy impacts only (deep rumble).
-    // This creates a felt difference between sharp and heavy events.
+    // Dual-envelope adaptive SimFx detector (right=crisp transient cues, left=heavy sustained impacts)
     float floor_thr = static_cast<float>(g_dsp_config.noise_floor_pct) * 0.01f;
     float gain = static_cast<float>(g_dsp_config.gain_x10) * 0.1f;
-
-    // Right motor: fast-attack, responds to transient delta (sharp cues)
-    auto update_right = [&](float mag, float &fast_e, float &slow_e, float &out_lvl, uint32_t &hold_until) {
-        fast_e = fast_e * 0.65f + mag * 0.35f;   // faster attack
-        slow_e = slow_e * 0.96f + mag * 0.04f;
-        float delta = fast_e - slow_e * 0.80f;   // more sensitive to transients
-        float eff = std::max(mag * 0.80f, delta * 1.60f);
-        if (eff >= floor_thr && eff > 0.002f) {
-            float drive = (eff - floor_thr * 0.5f) * gain * 255.0f;
-            float target = std::max(drive, static_cast<float>(g_dsp_config.min_rumble));
-            if (target > 255.0f) target = 255.0f;
-            if (target >= out_lvl) {
-                out_lvl = target;
-                // Right motor hold is shorter (crisp feel)
-                hold_until = now_us + static_cast<uint32_t>(g_dsp_config.hold_ms) * 1000u;
-            }
-        }
-    };
-
-    // Left motor: slow-attack, responds only to sustained heavy signal (heavy hits / explosions)
-    auto update_left = [&](float mag, float &fast_e, float &slow_e, float &out_lvl, uint32_t &hold_until) {
-        fast_e = fast_e * 0.80f + mag * 0.20f;   // slower attack = less jitter
-        slow_e = slow_e * 0.97f + mag * 0.03f;
-        float delta = fast_e - slow_e * 0.90f;
-        float eff = std::max(mag * 0.90f, delta * 1.20f);
-        // Higher floor for left motor — only heavy impacts get through
-        float left_floor = floor_thr * 1.6f;
-        if (eff >= left_floor && eff > 0.004f) {
-            float drive = (eff - left_floor * 0.5f) * gain * 200.0f;  // softer cap
-            float target = std::max(drive, static_cast<float>(g_dsp_config.min_rumble));
-            if (target > 200.0f) target = 200.0f;
-            if (target >= out_lvl) {
-                out_lvl = target;
-                // Left motor hold is longer (sustained heavy rumble)
-                hold_until = now_us + static_cast<uint32_t>(g_dsp_config.hold_ms) * 2000u;
-            }
-        }
-    };
-
-    // Use average of L+R haptic channels for each motor:
-    // right motor = average of both (all hits), left = heavier hits only
     float norm_avg = (norm_hl + norm_hr) * 0.5f;
-    update_right(norm_avg, env_fast_r, env_slow_r, synth_level_r, hold_until_r_us);
-    update_left(norm_avg, env_fast_l, env_slow_l, synth_level_l, hold_until_l_us);
+    step_synth_channel(kRightSynthCfg, norm_avg, floor_thr, gain, now_us, env_fast_r, env_slow_r, synth_level_r, hold_until_r_us);
+    step_synth_channel(kLeftSynthCfg, norm_avg, floor_thr, gain, now_us, env_fast_l, env_slow_l, synth_level_l, hold_until_l_us);
     last_audio_rx_us = now_us;
 }
 

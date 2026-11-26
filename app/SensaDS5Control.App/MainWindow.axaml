@@ -3,40 +3,45 @@
         xmlns:local="clr-namespace:SensaDS5Control.App"
         x:Class="SensaDS5Control.App.MainWindow"
         Title="SensaDS5Control — Cosmic Byte Sensa Wireless Suite"
-        Width="1120" Height="730" MinWidth="920" MinHeight="620"
-        Background="#0B0E14">
+        Icon="/Assets/app_icon.ico"
+        Width="1150" Height="750" MinWidth="940" MinHeight="640"
+        Background="{DynamicResource AppBgBrush}">
 
-  <Grid ColumnDefinitions="255,*">
-    <!-- LEFT SIDEBAR -->
-    <Border Grid.Column="0" Background="#121620" BorderBrush="#212838" BorderThickness="0,0,1,0" Padding="14">
+  <Grid ColumnDefinitions="265,*">
+    <!-- ==================== LEFT SIDEBAR ==================== -->
+    <Border Grid.Column="0" Background="{DynamicResource SidebarBgBrush}"
+            BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,1,0" Padding="15">
       <DockPanel>
-        <!-- Brand Header -->
-        <StackPanel DockPanel.Dock="Top" Spacing="12">
-          <StackPanel Orientation="Horizontal" Spacing="10" Margin="2,4,2,2">
-            <Border Width="38" Height="38" CornerRadius="10" Background="#1D2B48" BorderBrush="#3B82F6" BorderThickness="1">
-              <PathIcon Width="20" Height="20" Foreground="#60A5FA"
-                        Data="M 6,6 C 3.5,6 2,8.5 1.5,12 L 0.5,18 C 0.3,20.2 1.8,21.5 3.4,21.5 C 4.8,21.5 6,19.8 7,17 L 9.5,15.5 L 14.5,15.5 L 17,17 C 18,19.8 19.2,21.5 20.6,21.5 C 22.2,21.5 23.7,20.2 23.5,18 L 22.5,12 C 22,8.5 20.5,6 18,6 Z" />
+        <StackPanel DockPanel.Dock="Top" Spacing="13">
+          <!-- Brand Header with 2D Cosmic Byte Sensa Art Logo -->
+          <StackPanel Orientation="Horizontal" Spacing="11" Margin="2,2,2,2">
+            <Border Width="44" Height="44" CornerRadius="11" ClipToBounds="True"
+                    BorderBrush="{DynamicResource PillBorderBrush}" BorderThickness="1">
+              <Image Source="/Assets/app_logo.png" Width="44" Height="44" Stretch="UniformToFill" />
             </Border>
-            <StackPanel VerticalAlignment="Center">
-              <TextBlock Text="SensaDS5Control" FontSize="16" FontWeight="Bold" Foreground="#F8FAFC" />
-              <TextBlock Text="Pico 2 W Wireless Bridge" FontSize="11" Foreground="#64748B" />
+            <StackPanel VerticalAlignment="Center" Spacing="1">
+              <TextBlock Text="SensaDS5Control" FontSize="16" FontWeight="Bold"
+                         Foreground="{DynamicResource TextPrimaryBrush}" />
+              <TextBlock Text="Cosmic Byte Sensa • Pico 2 W" FontSize="11"
+                         Foreground="{DynamicResource TextMutedBrush}" />
             </StackPanel>
           </StackPanel>
 
           <!-- Auto-Connect Status Card -->
-          <Border Background="#171C28" BorderBrush="#262E42" BorderThickness="1" CornerRadius="10" Padding="12">
+          <Border Classes="subcard">
             <StackPanel Spacing="8">
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#64748B" VerticalAlignment="Center" />
-                <TextBlock x:Name="StatusText" Text="Searching for Pico..." FontWeight="SemiBold" FontSize="13" Foreground="#F1F5F9" />
+                <TextBlock x:Name="StatusText" Text="Searching for Pico..." FontWeight="SemiBold" FontSize="13"
+                           Foreground="{DynamicResource TextPrimaryBrush}" />
               </StackPanel>
               <TextBlock x:Name="SubStatusText" Classes="dim" Text="Plug Pico 2 W into USB (Auto-Connect)" TextWrapping="Wrap" />
               <WrapPanel Orientation="Horizontal">
                 <Border Classes="pill" Margin="0,0,6,4">
-                  <TextBlock x:Name="PortBadgeTxt" Text="USB: --" FontSize="11" Foreground="#CBD5E1" />
+                  <TextBlock x:Name="PortBadgeTxt" Text="USB: --" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" />
                 </Border>
                 <Border Classes="pill" Margin="0,0,0,4">
-                  <TextBlock x:Name="BatteryBadgeTxt" Text="Bat: --" FontSize="11" Foreground="#94A3B8" />
+                  <TextBlock x:Name="BatteryBadgeTxt" Text="Bat: --" FontSize="11" Foreground="{DynamicResource TextMutedBrush}" />
                 </Border>
               </WrapPanel>
               <Button x:Name="ConnectBtn" Content="Connect" Click="OnConnectClick"
@@ -45,8 +50,9 @@
           </Border>
 
           <!-- Navigation Rail -->
-          <TextBlock Text="WORKSPACE" FontSize="10" FontWeight="Bold" Foreground="#64748B" Margin="6,4,0,0" />
-          <StackPanel Spacing="4">
+          <TextBlock Text="CONTROL CENTER" FontSize="10" FontWeight="Bold" LetterSpacing="1.1"
+                     Foreground="{DynamicResource TextMutedBrush}" Margin="6,2,0,0" />
+          <StackPanel Spacing="3">
             <Button x:Name="NavDashBtn" Classes="nav active" Click="OnNavClick" Tag="0">
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <PathIcon Width="16" Height="16" Data="M 3,13 L 11,13 L 11,3 L 3,3 Z M 3,21 L 11,21 L 11,15 L 3,15 Z M 13,21 L 21,21 L 21,11 L 13,11 Z M 13,3 L 13,9 L 21,9 L 21,3 Z" />
@@ -74,7 +80,7 @@
             <Button x:Name="NavLightingBtn" Classes="nav" Click="OnNavClick" Tag="4">
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <PathIcon Width="16" Height="16" Data="M 12,2 A 7,7 0 0 0 7,14 L 8,17 L 16,17 L 17,14 A 7,7 0 0 0 12,2 Z M 9,20 L 15,20 L 15,22 L 9,22 Z" />
-                <TextBlock Text="Lighting &amp; Mic" VerticalAlignment="Center" />
+                <TextBlock Text="Lighting, Theme &amp; Mic" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
             <Button x:Name="NavConsoleBtn" Classes="nav" Click="OnNavClick" Tag="5">
@@ -86,38 +92,65 @@
           </StackPanel>
         </StackPanel>
 
-        <!-- Sidebar Bottom Quick Controls -->
-        <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom" Spacing="6" Margin="0,12,0,0">
+        <!-- Sidebar Bottom Quick Controls & Theme Picker -->
+        <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom" Spacing="7" Margin="0,12,0,0">
+          <Border Classes="subcard" Padding="10,8">
+            <StackPanel Spacing="5">
+              <TextBlock Text="APP THEME" FontSize="10" FontWeight="Bold" LetterSpacing="1.0"
+                         Foreground="{DynamicResource TextMutedBrush}" />
+              <ComboBox x:Name="SidebarThemeCombo" HorizontalAlignment="Stretch"
+                        SelectionChanged="OnThemeComboChanged" />
+            </StackPanel>
+          </Border>
           <ToggleButton x:Name="QuickTouchMouseBtn" Content="Touchpad Mouse: OFF"
                         Click="OnQuickTouchMouseClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
           <Button x:Name="QuickMicMuteBtn" Content="Mic: Unmuted"
                   Click="OnToggleMicMuteClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-          <Button x:Name="QuickUpdateBtn" Content="Update FW / App" Click="OnUpdateFirmwareClick"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#166534" Foreground="White" />
+          <Button x:Name="QuickUpdateBtn" Content="Update Pico Firmware" Click="OnUpdateFirmwareClick"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Classes="success" />
         </StackPanel>
       </DockPanel>
     </Border>
 
-    <!-- MAIN CONTENT WORKSPACE -->
-    <Grid Grid.Column="1" Margin="20,16">
+    <!-- ==================== MAIN CONTENT WORKSPACE ==================== -->
+    <Grid Grid.Column="1" Margin="22,18">
       <!-- PAGE 0: DASHBOARD -->
       <ScrollViewer x:Name="Page0" IsVisible="True">
         <StackPanel Spacing="14">
-          <StackPanel Spacing="2">
-            <TextBlock Classes="title" Text="Overview &amp; USB Identity" />
-            <TextBlock Classes="dim" Text="Automatic USB hotplug bridge, mouse mapping, DualSense / Xbox 360 mode switcher &amp; Impulse Triggers." />
-          </StackPanel>
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="title" Text="Overview &amp; USB Identity" />
+              <TextBlock Classes="dim" Text="Automatic USB hotplug bridge, DualSense / Xbox 360 live hardware visualizer, mouse mapping &amp; Impulse Triggers." />
+            </StackPanel>
+            <Border Grid.Column="1" Classes="pill" VerticalAlignment="Center" Padding="12,6">
+              <TextBlock x:Name="HeroModePill" Text="Mode: DualSense" FontSize="12" FontWeight="SemiBold"
+                         Foreground="{DynamicResource NavActiveFgBrush}" />
+            </Border>
+          </Grid>
 
-          <!-- Hero Card: Live Controller Preview + Bridge Summary -->
+          <!-- Hero Card: Live Adaptive DualSense / Xbox Controller Preview + Telemetry -->
           <Border Classes="card">
-            <Grid ColumnDefinitions="1.15*,*">
-              <local:ControllerDiagram x:Name="DashControllerDiagram" MaxHeight="225" Margin="0,0,14,0" />
+            <Grid ColumnDefinitions="1.25*,*">
+              <local:ControllerDiagram x:Name="DashControllerDiagram" MaxHeight="240" Margin="0,0,18,0" />
               <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="10">
                 <TextBlock Classes="hdr" Text="Live Bridge Telemetry" />
-                <TextBlock x:Name="DashBridgeInfo" Text="Bridge: Searching for Pico USB..." FontSize="13" />
-                <TextBlock x:Name="DashBatteryInfo" Text="Battery: --" FontSize="13" />
-                <TextBlock x:Name="DashReportMode" Text="Input Mode: --" FontSize="13" />
-                <TextBlock Classes="dim" Text="0x36 Audio-Haptics stream automatically when DualSense games play 4-ch sound." TextWrapping="Wrap" />
+                <Border Classes="subcard" Padding="11,9">
+                  <StackPanel Spacing="6">
+                    <TextBlock x:Name="DashBridgeInfo" Text="Bridge: Searching for Pico USB..." FontSize="13"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock x:Name="DashBatteryInfo" Text="Battery: --" FontSize="13"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <TextBlock x:Name="DashReportMode" Text="Input Mode: --" FontSize="13"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                  </StackPanel>
+                </Border>
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto">
+                  <TextBlock Text="Haptic L:" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,5" />
+                  <ProgressBar x:Name="DashHapticLBar" Grid.Column="1" Minimum="0" Maximum="100" Height="8" Margin="0,0,0,5" />
+                  <TextBlock Grid.Row="1" Text="Haptic R:" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
+                  <ProgressBar x:Name="DashHapticRBar" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Height="8" />
+                </Grid>
+                <TextBlock Classes="dim" Text="0x36 Audio-Haptics stream automatically in DualSense mode; switch to Xbox 360 anytime for universal XInput." TextWrapping="Wrap" />
               </StackPanel>
             </Grid>
           </Border>
@@ -125,15 +158,15 @@
           <Grid ColumnDefinitions="*,*">
             <!-- Mouse & Gyro Card -->
             <Border Classes="card" Margin="0,0,7,0">
-              <StackPanel Spacing="8">
+              <StackPanel Spacing="10">
                 <TextBlock Classes="hdr" Text="Touchpad &amp; Gyro Mouse" />
                 <CheckBox x:Name="TouchMouseChk" Content="Touchpad as Mouse (1-finger move, tap click, 2-finger scroll)"
                           IsCheckedChanged="OnMouseSettingsChanged" />
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <TextBlock Text="Touch Sens:" VerticalAlignment="Center" Width="85" />
-                  <Slider x:Name="TouchSensSlider" Minimum="0.3" Maximum="3.5" Value="1.2" Width="170"
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <TextBlock Text="Touch Sens:" VerticalAlignment="Center" Width="82" Foreground="{DynamicResource TextSecondaryBrush}" />
+                  <Slider x:Name="TouchSensSlider" Minimum="0.3" Maximum="3.5" Value="1.2" Width="175"
                           ValueChanged="OnMouseSettingsChanged" />
-                  <TextBlock x:Name="TouchSensLabel" Text="1.2x" VerticalAlignment="Center" />
+                  <TextBlock x:Name="TouchSensLabel" Text="1.2x" VerticalAlignment="Center" FontWeight="SemiBold" />
                 </StackPanel>
                 <CheckBox x:Name="GyroMouseChk" Content="Gyro Aiming as Mouse" IsCheckedChanged="OnMouseSettingsChanged" />
                 <StackPanel Orientation="Horizontal" Spacing="10">
@@ -145,22 +178,25 @@
 
             <!-- USB Mode + Impulse Triggers Card -->
             <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
-              <StackPanel Spacing="8">
-                <TextBlock Classes="hdr" Text="USB Mode &amp; Xbox 360 Impulse Triggers" />
-                <WrapPanel Orientation="Horizontal">
-                  <Button x:Name="BtnUsbDs5" Content="DualSense (054C:0CE6)" Click="OnUsbModeDs5Click" Margin="0,0,8,6" />
-                  <Button x:Name="BtnUsbX360" Content="Xbox 360 XInput (1209:DB05)" Click="OnUsbModeX360Click" Margin="0,0,0,6" />
-                </WrapPanel>
-                <TextBlock x:Name="UsbModeStatus" Classes="dim" Text="Active USB Personality: DualSense Wireless Controller (054C:0CE6)" />
-                <Border Height="1" Background="#242B3D" Margin="0,2" />
-                <TextBlock Text="Impulse Triggers (Rumble → L2 / R2 0x26)" FontWeight="SemiBold" FontSize="13" />
+              <StackPanel Spacing="10">
+                <TextBlock Classes="hdr" Text="USB Personality &amp; Impulse Triggers" />
+                <Grid ColumnDefinitions="*,*">
+                  <Button x:Name="BtnUsbDs5" Content="DualSense (054C:0CE6)" Click="OnUsbModeDs5Click"
+                          Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,5,0" />
+                  <Button x:Name="BtnUsbX360" Grid.Column="1" Content="Xbox 360 (1209:DB05)" Click="OnUsbModeX360Click"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="5,0,0,0" />
+                </Grid>
+                <TextBlock x:Name="UsbModeStatus" Classes="dim" Text="Active USB Personality: DualSense Wireless Controller (054C:0CE6)" TextWrapping="Wrap" />
+                <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
+                <TextBlock Text="Impulse Triggers (Rumble → L2 / R2 0x26)" FontWeight="SemiBold" FontSize="13"
+                           Foreground="{DynamicResource TextPrimaryBrush}" />
                 <ComboBox x:Name="ImpulseModeCombo" HorizontalAlignment="Stretch" SelectionChanged="OnImpulseModeChanged" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                  <TextBlock Text="Strength:" VerticalAlignment="Center" Width="62" />
-                  <Slider x:Name="ImpulseStrengthSlider" Minimum="0" Maximum="100" Value="85" Width="140"
+                  <TextBlock Text="Strength:" VerticalAlignment="Center" Width="62" Foreground="{DynamicResource TextSecondaryBrush}" />
+                  <Slider x:Name="ImpulseStrengthSlider" Minimum="0" Maximum="100" Value="85" Width="145"
                           ValueChanged="OnImpulseStrengthChanged" />
                   <TextBlock x:Name="ImpulseStrengthLabel" Text="85%" VerticalAlignment="Center" Width="40" FontWeight="SemiBold" />
-                  <Button Content="Test Triggers" Click="OnTestImpulseTriggersClick" />
+                  <Button Content="Test" Click="OnTestImpulseTriggersClick" />
                 </StackPanel>
               </StackPanel>
             </Border>
@@ -171,27 +207,33 @@
       <!-- PAGE 1: CONTROLLER TESTER -->
       <ScrollViewer x:Name="Page1" IsVisible="False">
         <StackPanel Spacing="14">
-          <StackPanel Spacing="2">
-            <TextBlock Classes="title" Text="Interactive Controller Tester" />
-            <TextBlock Classes="dim" Text="Every button, bumper, analog trigger, thumbstick, touchpad finger &amp; LED renders live at 30 Hz." />
-          </StackPanel>
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="title" Text="Interactive Controller Tester" />
+              <TextBlock Classes="dim" Text="Automatically displays DualSense or Xbox 360 layout matching your active USB personality." />
+            </StackPanel>
+            <Border Grid.Column="1" Classes="pill" VerticalAlignment="Center" Padding="12,6">
+              <TextBlock x:Name="TesterLayoutBadge" Text="Layout: DualSense" FontSize="12" FontWeight="SemiBold"
+                         Foreground="{DynamicResource NavActiveFgBrush}" />
+            </Border>
+          </Grid>
 
           <Border Classes="card">
-            <Grid ColumnDefinitions="1.4*,*">
-              <local:ControllerDiagram x:Name="TesterControllerDiagram" MaxHeight="300" Margin="0,0,16,0" />
+            <Grid ColumnDefinitions="1.45*,*">
+              <local:ControllerDiagram x:Name="TesterControllerDiagram" MaxHeight="310" Margin="0,0,18,0" />
               <StackPanel Grid.Column="1" Spacing="10" VerticalAlignment="Center">
                 <TextBlock Classes="hdr" Text="Pressed Controls &amp; Triggers" />
-                <Grid ColumnDefinitions="36,*" RowDefinitions="Auto,Auto">
-                  <TextBlock Text="L2" VerticalAlignment="Center" Margin="0,0,0,6" />
+                <Grid ColumnDefinitions="42,*" RowDefinitions="Auto,Auto">
+                  <TextBlock x:Name="TesterL2Label" Text="L2" VerticalAlignment="Center" Margin="0,0,0,6" />
                   <ProgressBar x:Name="L2Bar" Grid.Column="1" Minimum="0" Maximum="255" Height="12" Margin="0,0,0,6" />
-                  <TextBlock Grid.Row="1" Text="R2" VerticalAlignment="Center" />
+                  <TextBlock x:Name="TesterR2Label" Grid.Row="1" Text="R2" VerticalAlignment="Center" />
                   <ProgressBar x:Name="R2Bar" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="255" Height="12" />
                 </Grid>
                 <TextBlock x:Name="ButtonsActiveTxt" Text="Pressed: (none)" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
                 <TextBlock x:Name="RawBytesTxt" Classes="dim" Text="Raw Btn Bytes: --" />
-                <Border Height="1" Background="#242B3D" />
+                <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
                 <TextBlock x:Name="TouchTxt" Classes="dim" Text="Touch 0: -- | Touch 1: --" />
-                <TextBlock x:Name="GyroTxt" Text="Gyro (X, Y, Z): 0, 0, 0" FontFamily="Consolas" FontSize="12" />
+                <TextBlock x:Name="GyroTxt" Text="Gyro  (X, Y, Z): 0, 0, 0" FontFamily="Consolas" FontSize="12" />
                 <TextBlock x:Name="AccelTxt" Text="Accel (X, Y, Z): 0, 0, 0" FontFamily="Consolas" FontSize="12" />
               </StackPanel>
             </Grid>
@@ -201,8 +243,8 @@
             <Border Classes="card" Margin="0,0,7,0">
               <StackPanel Spacing="6" HorizontalAlignment="Center">
                 <TextBlock Classes="hdr" Text="Left Stick" HorizontalAlignment="Center" />
-                <Canvas Width="120" Height="120" Background="#0F131C">
-                  <Ellipse Width="116" Height="116" Canvas.Left="2" Canvas.Top="2" Stroke="#2F3950" StrokeThickness="1.5" />
+                <Canvas Width="120" Height="120" Background="{DynamicResource InputSurfaceBgBrush}">
+                  <Ellipse Width="116" Height="116" Canvas.Left="2" Canvas.Top="2" Stroke="{DynamicResource PillBorderBrush}" StrokeThickness="1.5" />
                   <Ellipse x:Name="LeftStickDot" Width="12" Height="12" Fill="#38BDF8" Canvas.Left="54" Canvas.Top="54" />
                 </Canvas>
                 <TextBlock x:Name="LeftStickTxt" Classes="dim" Text="128, 128" HorizontalAlignment="Center" />
@@ -211,8 +253,8 @@
             <Border Grid.Column="1" Classes="card" Margin="7,0,7,0">
               <StackPanel Spacing="6" HorizontalAlignment="Center">
                 <TextBlock Classes="hdr" Text="Right Stick" HorizontalAlignment="Center" />
-                <Canvas Width="120" Height="120" Background="#0F131C">
-                  <Ellipse Width="116" Height="116" Canvas.Left="2" Canvas.Top="2" Stroke="#2F3950" StrokeThickness="1.5" />
+                <Canvas Width="120" Height="120" Background="{DynamicResource InputSurfaceBgBrush}">
+                  <Ellipse Width="116" Height="116" Canvas.Left="2" Canvas.Top="2" Stroke="{DynamicResource PillBorderBrush}" StrokeThickness="1.5" />
                   <Ellipse x:Name="RightStickDot" Width="12" Height="12" Fill="#A855F7" Canvas.Left="54" Canvas.Top="54" />
                 </Canvas>
                 <TextBlock x:Name="RightStickTxt" Classes="dim" Text="128, 128" HorizontalAlignment="Center" />
@@ -221,7 +263,7 @@
             <Border Grid.Column="2" Classes="card" Margin="7,0,0,0">
               <StackPanel Spacing="6">
                 <TextBlock Classes="hdr" Text="Touchpad Monitor" />
-                <Canvas Width="230" Height="120" Background="#0F131C" HorizontalAlignment="Left">
+                <Canvas Width="230" Height="120" Background="{DynamicResource InputSurfaceBgBrush}" HorizontalAlignment="Left">
                   <Ellipse x:Name="Touch0Dot" Width="13" Height="13" Fill="#22C55E" IsVisible="False" />
                   <Ellipse x:Name="Touch1Dot" Width="13" Height="13" Fill="#F59E0B" IsVisible="False" />
                 </Canvas>
@@ -287,14 +329,14 @@
               <StackPanel Spacing="8">
                 <TextBlock Classes="hdr" Text="Left Trigger (L2)" />
                 <ComboBox x:Name="LeftTrigCombo" SelectedIndex="0" HorizontalAlignment="Stretch" />
-                <TextBlock Text="Start Position (0–255)" Classes="dim" />
-                <Slider x:Name="LStartSlider" Minimum="0" Maximum="255" Value="40" />
-                <TextBlock Text="End Position (0–255)" Classes="dim" />
-                <Slider x:Name="LEndSlider" Minimum="0" Maximum="255" Value="180" />
-                <TextBlock Text="Force / Strength (0–255)" Classes="dim" />
-                <Slider x:Name="LForceSlider" Minimum="0" Maximum="255" Value="200" />
-                <TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" />
-                <Slider x:Name="LFreqSlider" Minimum="5" Maximum="60" Value="20" />
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Start Position (0–255)" Classes="dim" /><TextBlock x:Name="LStartValTxt" Text="40" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Slider x:Name="LStartSlider" Minimum="0" Maximum="255" Value="40" ValueChanged="OnTriggerSliderChanged" />
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="End Position (0–255)" Classes="dim" /><TextBlock x:Name="LEndValTxt" Text="180" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Slider x:Name="LEndSlider" Minimum="0" Maximum="255" Value="180" ValueChanged="OnTriggerSliderChanged" />
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Force / Strength (0–255)" Classes="dim" /><TextBlock x:Name="LForceValTxt" Text="200" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Slider x:Name="LForceSlider" Minimum="0" Maximum="255" Value="200" ValueChanged="OnTriggerSliderChanged" />
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" /><TextBlock x:Name="LFreqValTxt" Text="20 Hz" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Slider x:Name="LFreqSlider" Minimum="5" Maximum="60" Value="20" ValueChanged="OnTriggerSliderChanged" />
                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
                   <Button Content="Apply L2" Click="OnApplyLeftTriggerClick" Classes="accent" />
                   <Button Content="Follow Game" Click="OnAutoLeftTriggerClick" />
@@ -306,14 +348,14 @@
               <StackPanel Spacing="8">
                 <TextBlock Classes="hdr" Text="Right Trigger (R2)" />
                 <ComboBox x:Name="RightTrigCombo" SelectedIndex="0" HorizontalAlignment="Stretch" />
-                <TextBlock Text="Start Position (0–255)" Classes="dim" />
-                <Slider x:Name="RStartSlider" Minimum="0" Maximum="255" Value="60" />
-                <TextBlock Text="End Position (0–255)" Classes="dim" />
-                <Slider x:Name="REndSlider" Minimum="0" Maximum="255" Value="170" />
-                <TextBlock Text="Force / Strength (0–255)" Classes="dim" />
-                <Slider x:Name="RForceSlider" Minimum="0" Maximum="255" Value="220" />
-                <TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" />
-                <Slider x:Name="RFreqSlider" Minimum="5" Maximum="60" Value="25" />
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Start Position (0–255)" Classes="dim" /><TextBlock x:Name="RStartValTxt" Text="60" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Slider x:Name="RStartSlider" Minimum="0" Maximum="255" Value="60" ValueChanged="OnTriggerSliderChanged" />
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="End Position (0–255)" Classes="dim" /><TextBlock x:Name="REndValTxt" Text="170" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Slider x:Name="REndSlider" Minimum="0" Maximum="255" Value="170" ValueChanged="OnTriggerSliderChanged" />
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Force / Strength (0–255)" Classes="dim" /><TextBlock x:Name="RForceValTxt" Text="220" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Slider x:Name="RForceSlider" Minimum="0" Maximum="255" Value="220" ValueChanged="OnTriggerSliderChanged" />
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" /><TextBlock x:Name="RFreqValTxt" Text="25 Hz" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Slider x:Name="RFreqSlider" Minimum="5" Maximum="60" Value="25" ValueChanged="OnTriggerSliderChanged" />
                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
                   <Button Content="Apply R2" Click="OnApplyRightTriggerClick" Classes="accent" />
                   <Button Content="Follow Game" Click="OnAutoRightTriggerClick" />
@@ -324,20 +366,38 @@
         </StackPanel>
       </ScrollViewer>
 
-      <!-- PAGE 4: LIGHTING & MIC -->
+      <!-- PAGE 4: LIGHTING, THEME & MIC -->
       <ScrollViewer x:Name="Page4" IsVisible="False">
         <StackPanel Spacing="14">
           <StackPanel Spacing="2">
-            <TextBlock Classes="title" Text="Lighting &amp; Microphone" />
-            <TextBlock Classes="dim" Text="Customize the DualSense touchpad lightbar glow and bind the physical Mic Mute button to Windows audio." />
+            <TextBlock Classes="title" Text="Lighting, App Theme &amp; Mic" />
+            <TextBlock Classes="dim" Text="Pick a desktop color theme, customize the DualSense touchpad lightbar glow, and bind the controller Mic Mute button." />
           </StackPanel>
+
+          <!-- Color Theme Selection Card -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="hdr" Text="Desktop Color Scheme" />
+              <WrapPanel Orientation="Horizontal">
+                <Button Content="Midnight Cobalt" Click="OnThemePresetClick" Tag="midnight" Margin="0,0,8,6" />
+                <Button Content="Xbox Emerald" Click="OnThemePresetClick" Tag="xbox" Margin="0,0,8,6" />
+                <Button Content="Cosmic Crimson" Click="OnThemePresetClick" Tag="crimson" Margin="0,0,8,6" />
+                <Button Content="DualSense Frost (Light)" Click="OnThemePresetClick" Tag="frost" Margin="0,0,0,6" />
+              </WrapPanel>
+            </StackPanel>
+          </Border>
 
           <Border Classes="card">
             <StackPanel Spacing="10">
-              <TextBlock Classes="hdr" Text="RGB Lightbar" />
-              <StackPanel Orientation="Horizontal" Spacing="14">
-                <Border x:Name="LedPreviewBox" Width="56" Height="56" CornerRadius="10" Background="#00A0FF" />
-                <StackPanel Spacing="4" Width="340">
+              <TextBlock Classes="hdr" Text="Controller RGB Lightbar" />
+              <StackPanel Orientation="Horizontal" Spacing="16">
+                <StackPanel Spacing="4" HorizontalAlignment="Center">
+                  <Border x:Name="LedPreviewBox" Width="64" Height="64" CornerRadius="12" Background="#00A0FF"
+                          BorderBrush="{DynamicResource PillBorderBrush}" BorderThickness="1" />
+                  <TextBlock x:Name="LedHexTxt" Text="#00A0FF" FontFamily="Consolas" FontSize="11"
+                             HorizontalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
+                </StackPanel>
+                <StackPanel Spacing="4" Width="360">
                   <Slider x:Name="LedRSlider" Minimum="0" Maximum="255" Value="0" ValueChanged="OnLedSliderChanged" />
                   <Slider x:Name="LedGSlider" Minimum="0" Maximum="255" Value="160" ValueChanged="OnLedSliderChanged" />
                   <Slider x:Name="LedBSlider" Minimum="0" Maximum="255" Value="255" ValueChanged="OnLedSliderChanged" />
@@ -346,10 +406,12 @@
               <WrapPanel Orientation="Horizontal">
                 <Button Content="Apply RGB" Click="OnApplyLedClick" Classes="accent" Margin="0,0,8,8" />
                 <Button Content="Follow Game (Auto)" Click="OnAutoLedClick" Margin="0,0,8,8" />
+                <Button Content="PS Blue" Click="OnPresetPsBlueClick" Margin="0,0,8,8" />
                 <Button Content="Cyan" Click="OnPresetCyanClick" Margin="0,0,8,8" />
                 <Button Content="Crimson" Click="OnPresetRedClick" Margin="0,0,8,8" />
                 <Button Content="Emerald" Click="OnPresetGreenClick" Margin="0,0,8,8" />
                 <Button Content="Purple" Click="OnPresetPurpleClick" Margin="0,0,8,8" />
+                <Button Content="Amber" Click="OnPresetAmberClick" Margin="0,0,8,8" />
               </WrapPanel>
             </StackPanel>
           </Border>
@@ -391,8 +453,8 @@
               <WrapPanel Orientation="Horizontal">
                 <TextBox x:Name="TokenBox" Width="300" Watermark="Optional GitHub Token (Private Repo Updates)" PasswordChar="•" Margin="0,0,8,6" />
                 <Button Content="Save Token" Click="OnSaveTokenClick" Margin="0,0,8,6" />
-                <Button Content="Update Pico Firmware (.uf2)" Click="OnUpdateFirmwareClick" Background="#16A34A" Foreground="White" Margin="0,0,8,6" />
-                <Button Content="Update Desktop App (.exe)" Click="OnUpdateAppClick" Margin="0,0,0,6" />
+                <Button Content="Update Pico Firmware (.uf2)" Click="OnUpdateFirmwareClick" Classes="success" Margin="0,0,8,6" />
+                <Button Content="Update Desktop App (.exe)" Click="OnUpdateAppClick" Classes="accent" Margin="0,0,0,6" />
               </WrapPanel>
               <TextBlock x:Name="UpdaterStatusTxt" Classes="dim" Text="Repo: Yamerooo-hd/SensaDS5Control" />
             </StackPanel>
@@ -400,7 +462,8 @@
         </StackPanel>
 
         <TextBox x:Name="ConsoleLogBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True"
-                 FontFamily="Consolas" FontSize="12" Background="#090C11" BorderBrush="#212838" TextWrapping="Wrap" Margin="0,0,0,8" />
+                 FontFamily="Consolas" FontSize="12" Background="{DynamicResource ConsoleBgBrush}"
+                 BorderBrush="{DynamicResource BorderSubtleBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
 
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
           <TextBox x:Name="CliInputBox" Watermark="Send raw command to Pico (e.g. status, reconnect, imptrig 2 85)..." KeyDown="OnCliKeyDown" Margin="0,0,8,0" />

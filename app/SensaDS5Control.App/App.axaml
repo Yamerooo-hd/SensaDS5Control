@@ -2,69 +2,119 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="SensaDS5Control.App.App"
              RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <SolidColorBrush x:Key="AppBgBrush" Color="#090C12" />
+    <SolidColorBrush x:Key="SidebarBgBrush" Color="#101520" />
+    <SolidColorBrush x:Key="CardBgBrush" Color="#151B29" />
+    <SolidColorBrush x:Key="CardAltBgBrush" Color="#1B2335" />
+    <SolidColorBrush x:Key="BorderSubtleBrush" Color="#242D42" />
+    <SolidColorBrush x:Key="PillBgBrush" Color="#1C2436" />
+    <SolidColorBrush x:Key="PillBorderBrush" Color="#2E3B56" />
+    <SolidColorBrush x:Key="NavHoverBgBrush" Color="#1A2233" />
+    <SolidColorBrush x:Key="NavActiveBgBrush" Color="#1D2C49" />
+    <SolidColorBrush x:Key="NavActiveFgBrush" Color="#38BDF8" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F8FAFC" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#CBD5E1" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#8896AE" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#2563EB" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#1D4ED8" />
+    <SolidColorBrush x:Key="AccentFgBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="DangerBgBrush" Color="#7F1D1D" />
+    <SolidColorBrush x:Key="DangerFgBrush" Color="#FECACA" />
+    <SolidColorBrush x:Key="SuccessBgBrush" Color="#15803D" />
+    <SolidColorBrush x:Key="InputSurfaceBgBrush" Color="#0D111A" />
+    <SolidColorBrush x:Key="ConsoleBgBrush" Color="#070A0F" />
+  </Application.Resources>
+
   <Application.Styles>
     <FluentTheme />
+
     <Style Selector="Border.card">
-      <Setter Property="Background" Value="#161B26" />
-      <Setter Property="BorderBrush" Value="#252C3D" />
+      <Setter Property="Background" Value="{DynamicResource CardBgBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="CornerRadius" Value="14" />
       <Setter Property="Padding" Value="16" />
     </Style>
+
+    <Style Selector="Border.subcard">
+      <Setter Property="Background" Value="{DynamicResource CardAltBgBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Padding" Value="12" />
+    </Style>
+
     <Style Selector="Border.pill">
-      <Setter Property="Background" Value="#1F2636" />
-      <Setter Property="BorderBrush" Value="#2E374D" />
+      <Setter Property="Background" Value="{DynamicResource PillBgBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource PillBorderBrush}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="999" />
       <Setter Property="Padding" Value="10,4" />
     </Style>
+
     <Style Selector="TextBlock.hdr">
       <Setter Property="FontSize" Value="15" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Foreground" Value="#F3F6FC" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
       <Setter Property="Margin" Value="0,0,0,4" />
     </Style>
+
     <Style Selector="TextBlock.title">
-      <Setter Property="FontSize" Value="21" />
+      <Setter Property="FontSize" Value="22" />
       <Setter Property="FontWeight" Value="Bold" />
-      <Setter Property="Foreground" Value="#F8FAFC" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
+
     <Style Selector="TextBlock.dim">
       <Setter Property="FontSize" Value="12" />
-      <Setter Property="Foreground" Value="#94A3B8" />
+      <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
     </Style>
+
     <Style Selector="Button.nav">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="#94A3B8" />
+      <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
       <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Padding" Value="12,10" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Left" />
       <Setter Property="FontSize" Value="13" />
       <Setter Property="FontWeight" Value="Medium" />
     </Style>
+
     <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="#1C2333" />
-      <Setter Property="Foreground" Value="#E2E8F0" />
+      <Setter Property="Background" Value="{DynamicResource NavHoverBgBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
+
     <Style Selector="Button.nav.active">
-      <Setter Property="Background" Value="#1E293B" />
-      <Setter Property="Foreground" Value="#38BDF8" />
+      <Setter Property="Background" Value="{DynamicResource NavActiveBgBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource NavActiveFgBrush}" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+
     <Style Selector="Button.accent">
-      <Setter Property="Background" Value="#2563EB" />
-      <Setter Property="Foreground" Value="White" />
-      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentFgBrush}" />
+      <Setter Property="CornerRadius" Value="9" />
       <Setter Property="Padding" Value="14,8" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+
     <Style Selector="Button.danger">
-      <Setter Property="Background" Value="#7F1D1D" />
-      <Setter Property="Foreground" Value="#FECACA" />
-      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="{DynamicResource DangerBgBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource DangerFgBrush}" />
+      <Setter Property="CornerRadius" Value="9" />
       <Setter Property="Padding" Value="12,8" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Button.success">
+      <Setter Property="Background" Value="{DynamicResource SuccessBgBrush}" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Padding" Value="14,8" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
   </Application.Styles>

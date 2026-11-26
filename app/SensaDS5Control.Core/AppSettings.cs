@@ -4,6 +4,8 @@ namespace SensaDS5Control.Core;
 
 public sealed class AppSettings
 {
+    public string ThemeId { get; set; } = "midnight";
+
     public bool LedOverride { get; set; }
     public byte LedR { get; set; } = 0;
     public byte LedG { get; set; } = 160;
@@ -47,7 +49,14 @@ public sealed class AppSettings
         {
             if (File.Exists(FilePath))
             {
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new();
+                var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new();
+                s.HapticGainPct = Math.Clamp(s.HapticGainPct, 25, 255);
+                s.ImpulseTriggerMode = Math.Clamp(s.ImpulseTriggerMode, 0, 2);
+                s.ImpulseTriggerStrengthPct = Math.Clamp(s.ImpulseTriggerStrengthPct, 0, 100);
+                s.TouchpadSens = Math.Clamp(s.TouchpadSens, 0.3, 3.5);
+                s.MicLedMode = (byte)Math.Clamp((int)s.MicLedMode, 0, 2);
+                if (string.IsNullOrWhiteSpace(s.ThemeId)) s.ThemeId = "midnight";
+                return s;
             }
         }
         catch { }

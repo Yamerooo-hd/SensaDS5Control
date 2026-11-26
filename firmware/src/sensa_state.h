@@ -183,6 +183,30 @@ inline void write_bt_feature_crc(uint8_t *report_after_53, size_t report_len) {
     report_after_53[report_len - 1] = static_cast<uint8_t>((crc >> 24) & 0xFFu);
 }
 
+// Encode Xbox-style trigger vibration intensity (0..100%) into 11-byte DualSense 0x26 trigger block.
+inline void write_ds5_vibration_trig(uint8_t dst[11], uint8_t pct) {
+    for (int i = 0; i < 11; ++i) dst[i] = 0;
+    if (pct == 0) {
+        dst[0] = 0x05; // Reset / Off
+        return;
+    }
+    int fp_raw = (static_cast<int>(pct) * 7 + 99) / 100;
+    uint8_t fp = static_cast<uint8_t>(fp_raw < 1 ? 1 : (fp_raw > 7 ? 7 : fp_raw));
+    uint8_t freq = static_cast<uint8_t>(18 + (static_cast<int>(pct) * 38) / 100); // 18..56 Hz
+    uint32_t packed30 = 0;
+    for (int z = 0; z < 10; ++z) {
+        packed30 |= (static_cast<uint32_t>(fp & 0x07u) << (z * 3));
+    }
+    dst[0] = 0x26; // Official DualSense Vibration trigger mode
+    dst[1] = 0xFF; // Zones 0..7 enabled
+    dst[2] = 0x03; // Zones 8..9 enabled
+    dst[3] = static_cast<uint8_t>(packed30 & 0xFFu);
+    dst[4] = static_cast<uint8_t>((packed30 >> 8) & 0xFFu);
+    dst[5] = static_cast<uint8_t>((packed30 >> 16) & 0xFFu);
+    dst[6] = static_cast<uint8_t>((packed30 >> 24) & 0xFFu);
+    dst[9] = freq;
+}
+
 } // namespace sensa
 
 #endif

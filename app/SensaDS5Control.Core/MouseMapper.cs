@@ -6,6 +6,7 @@ public sealed class MouseMapper
     private bool _wasTouch0;
     private ushort _lastX, _lastY;
     private bool _wasClick;
+    private bool _wasRightClick;
     private bool _wasTwoFinger;
     private ushort _lastScrollY;
     private double _fracX, _fracY, _fracScroll;
@@ -29,6 +30,19 @@ public sealed class MouseMapper
         _calSamples = 0;
         _calSumX = 0;
         _calSumY = 0;
+    }
+
+    public void ReleaseAllButtons(IPlatformServices platform)
+    {
+        _wasTouch0 = false;
+        _wasTwoFinger = false;
+        if (_wasClick)
+        {
+            if (_wasRightClick) platform.MouseRightClick(false);
+            else platform.MouseLeftClick(false);
+            _wasClick = false;
+            _wasRightClick = false;
+        }
     }
 
     public void Process(in TelemetrySample s, IPlatformServices platform)
@@ -100,21 +114,25 @@ public sealed class MouseMapper
             bool clicked = s.TouchpadClick;
             if (clicked != _wasClick)
             {
-                bool rightSide = s.Touch0Down && s.Touch0X > 960;
-                if (rightSide) platform.MouseRightClick(clicked);
-                else platform.MouseLeftClick(clicked);
+                if (clicked)
+                {
+                    bool rightSide = s.Touch0Down && s.Touch0X > 960;
+                    _wasRightClick = rightSide;
+                    if (rightSide) platform.MouseRightClick(true);
+                    else platform.MouseLeftClick(true);
+                }
+                else
+                {
+                    if (_wasRightClick) platform.MouseRightClick(false);
+                    else platform.MouseLeftClick(false);
+                    _wasRightClick = false;
+                }
                 _wasClick = clicked;
             }
         }
         else
         {
-            _wasTouch0 = false;
-            _wasTwoFinger = false;
-            if (_wasClick)
-            {
-                platform.MouseLeftClick(false);
-                _wasClick = false;
-            }
+            ReleaseAllButtons(platform);
         }
 
         if (GyroMouseEnabled && (!GyroOnlyOnL2 || s.L2 > 40))

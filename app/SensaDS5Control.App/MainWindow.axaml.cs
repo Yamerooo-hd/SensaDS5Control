@@ -18,10 +18,11 @@ public partial class MainWindow : Window
     private readonly AppSettings _settings;
     private readonly StringBuilder _logSb = new();
     private readonly object _logLock = new();
-    private volatile bool _logDirty;
-    private int _uiTelemetryPending;
     private readonly DispatcherTimer _logFlushTimer;
     private readonly DispatcherTimer _hotplugTimer;
+
+    private volatile bool _logDirty;
+    private int _uiTelemetryPending;
     private int _hotplugBusy;
     private bool _wasMicBtn;
     private volatile bool _syncMicButton = true;
@@ -30,16 +31,19 @@ public partial class MainWindow : Window
     private bool _wasBtControllerReady;
     private DateTime _ignoreBtReadyUntilUtc = DateTime.MinValue;
     private int _activeNavIndex;
+    private byte _lastUsbMode;
 
     private static readonly IBrush DotGreen = new SolidColorBrush(Color.Parse("#22C55E"));
     private static readonly IBrush DotAmber = new SolidColorBrush(Color.Parse("#F59E0B"));
     private static readonly IBrush DotGray = new SolidColorBrush(Color.Parse("#64748B"));
 
-    public MainWindow()
+    public MainWindow() : this(AppSettings.Load()) { }
+
+    public MainWindow(AppSettings settings)
     {
+        _settings = settings;
         InitializeComponent();
-        _settings = AppSettings.Load();
-        PopulateTriggerCombos();
+        PopulateStaticCombos();
         ApplySettingsToUi();
         _loadingUi = false;
 
@@ -61,33 +65,27 @@ public partial class MainWindow : Window
 
     private void OnNavClick(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button btn || btn.Tag is not string tagStr || !int.TryParse(tagStr, out int idx))
-            return;
-        SelectNavPage(idx);
+        if (sender is Button btn && btn.Tag is string tagStr && int.TryParse(tagStr, out int idx))
+            SelectNavPage(idx);
     }
 
     private void SelectNavPage(int idx)
     {
         _activeNavIndex = idx;
-        Page0.IsVisible = idx == 0;
-        Page1.IsVisible = idx == 1;
-        Page2.IsVisible = idx == 2;
-        Page3.IsVisible = idx == 3;
-        Page4.IsVisible = idx == 4;
-        Page5.IsVisible = idx == 5;
-
+        Control[] pages = [Page0, Page1, Page2, Page3, Page4, Page5];
         Button[] navBtns = [NavDashBtn, NavTesterBtn, NavHapticsBtn, NavTriggersBtn, NavLightingBtn, NavConsoleBtn];
-        for (int i = 0; i < navBtns.Length; i++)
+        for (int i = 0; i < pages.Length; i++)
         {
+            pages[i].IsVisible = i == idx;
             if (i == idx) navBtns[i].Classes.Add("active");
             else navBtns[i].Classes.Remove("active");
         }
     }
 
-    private void PopulateTriggerCombos()
+    private void PopulateStaticCombos()
     {
-        var items = new[]
-        {
+        string[] triggerPresets =
+        [
             "Follow Game (Auto)",
             "Off",
             "Continuous Resistance",
@@ -95,9 +93,9 @@ public partial class MainWindow : Window
             "Weapon (Gun Snap)",
             "Vibration (Rapid Fire)",
             "Bow (Progressive Tension)"
-        };
-        LeftTrigCombo.ItemsSource = items;
-        RightTrigCombo.ItemsSource = items;
+        ];
+        LeftTrigCombo.ItemsSource = triggerPresets;
+        RightTrigCombo.ItemsSource = triggerPresets;
 
         ImpulseModeCombo.ItemsSource = new[]
         {
@@ -105,10 +103,16 @@ public partial class MainWindow : Window
             "Always (On Any Rumble)",
             "Only While Trigger Pulled"
         };
+
+        SidebarThemeCombo.ItemsSource = ThemeManager.Presets.Select(t => t.DisplayName).ToArray();
     }
 
     private void ApplySettingsToUi()
     {
+        int themeIdx = ThemeManager.Presets.ToList()
+            .FindIndex(t => string.Equals(t.Id, _settings.ThemeId, StringComparison.OrdinalIgnoreCase));
+        SidebarThemeCombo.SelectedIndex = themeIdx >= 0 ? themeIdx : 0;
+
         TouchMouseChk.IsChecked = _settings.TouchpadMouse;
         QuickTouchMouseBtn.IsChecked = _settings.TouchpadMouse;
         QuickTouchMouseBtn.Content = _settings.TouchpadMouse ? "Touchpad Mouse: ON" : "Touchpad Mouse: OFF";
@@ -141,6 +145,7 @@ public partial class MainWindow : Window
         REndSlider.Value = _settings.RightEnd;
         RForceSlider.Value = _settings.RightForce;
         RFreqSlider.Value = _settings.RightFreq;
+        UpdateTriggerSliderLabels();
 
         SyncMicBtnChk.IsChecked = _settings.SyncControllerMicButton;
         _syncMicButton = _settings.SyncControllerMicButton;
@@ -151,6 +156,35 @@ public partial class MainWindow : Window
         _mouse.GyroMouseEnabled = _settings.GyroMouse;
         _mouse.GyroOnlyOnL2 = _settings.GyroOnlyOnL2;
         _mouse.GyroSensitivity = _settings.GyroSens;
+    }
+
+    private void SelectTheme(string themeId)
+    {
+        ThemeManager.Apply(themeId);
+        _settings.ThemeId = themeId;
+        _settings.Save();
+        int idx = ThemeManager.Presets.ToList()
+            .FindIndex(t => string.Equals(t.Id, themeId, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0 && SidebarThemeCombo.SelectedIndex != idx)
+        {
+            _loadingUi = true;
+            SidebarThemeCombo.SelectedIndex = idx;
+            _loadingUi = false;
+        }
+    }
+
+    private void OnThemeComboChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingUi) return;
+        int idx = SidebarThemeCombo.SelectedIndex;
+        if (idx >= 0 && idx < ThemeManager.Presets.Count)
+            SelectTheme(ThemeManager.Presets[idx].Id);
+    }
+
+    private void OnThemePresetClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string themeId })
+            SelectTheme(themeId);
     }
 
     private async Task PollPicoUsbHotplugAsync()
@@ -165,19 +199,14 @@ public partial class MainWindow : Window
             if (activePort == null)
             {
                 if (_pico.IsConnected || _pico.ActivePortName != null)
-                {
                     _pico.NotifyUsbRemoved();
-                }
                 return;
             }
 
             if (_pico.IsConnected)
             {
-                // If Windows moved the port or old port vanished, drop cleanly
                 if (_pico.ActivePortName != null && !ports.Contains(_pico.ActivePortName, StringComparer.OrdinalIgnoreCase))
-                {
                     _pico.NotifyUsbRemoved();
-                }
                 return;
             }
 
@@ -198,16 +227,14 @@ public partial class MainWindow : Window
         {
             if (_wasBtControllerReady)
             {
-                // Drop BT link cleanly while keeping Pico COM alive so powering controller back on auto-syncs immediately
                 _ignoreBtReadyUntilUtc = DateTime.UtcNow.AddMilliseconds(600);
                 _pico.DisconnectController();
+                _mouse.ReleaseAllButtons(_platform);
                 _wasBtControllerReady = false;
+                SetConnectButton(isConnectedController: false, connectedToPico: true);
                 StatusDot.Fill = DotAmber;
                 StatusText.Text = "Controller Disconnected";
                 SubStatusText.Text = "Press PS button on Sensa or click Reconnect Controller";
-                ConnectBtn.Content = "Reconnect Controller";
-                ConnectBtn.Classes.Remove("danger");
-                ConnectBtn.Classes.Add("accent");
                 DashControllerDiagram.ResetDisconnected();
                 TesterControllerDiagram.ResetDisconnected();
             }
@@ -235,6 +262,20 @@ public partial class MainWindow : Window
         }
     }
 
+    private void SetConnectButton(bool isConnectedController, bool connectedToPico)
+    {
+        ConnectBtn.Classes.Remove("danger");
+        ConnectBtn.Classes.Remove("accent");
+        if (!connectedToPico)
+        {
+            ConnectBtn.Content = "Connect";
+            ConnectBtn.Classes.Add("accent");
+            return;
+        }
+        ConnectBtn.Content = isConnectedController ? "Disconnect Controller" : "Reconnect Controller";
+        ConnectBtn.Classes.Add(isConnectedController ? "danger" : "accent");
+    }
+
     private void OnPicoConnectionChanged(bool connected, string? portOrError)
     {
         Dispatcher.UIThread.Post(() =>
@@ -242,9 +283,7 @@ public partial class MainWindow : Window
             if (connected)
             {
                 _wasBtControllerReady = false;
-                ConnectBtn.Content = "Reconnect Controller";
-                ConnectBtn.Classes.Remove("danger");
-                ConnectBtn.Classes.Add("accent");
+                SetConnectButton(isConnectedController: false, connectedToPico: true);
                 StatusDot.Fill = DotAmber;
                 StatusText.Text = $"Pico Connected ({portOrError})";
                 SubStatusText.Text = "Checking Sensa Bluetooth connection...";
@@ -253,10 +292,9 @@ public partial class MainWindow : Window
             }
             else
             {
+                _mouse.ReleaseAllButtons(_platform);
                 _wasBtControllerReady = false;
-                ConnectBtn.Content = "Connect";
-                ConnectBtn.Classes.Remove("danger");
-                ConnectBtn.Classes.Add("accent");
+                SetConnectButton(isConnectedController: false, connectedToPico: false);
                 StatusDot.Fill = DotGray;
                 StatusText.Text = _switchingUsbMode ? "Rebooting Pico USB..." : "Disconnected";
                 SubStatusText.Text = string.IsNullOrEmpty(portOrError) ? "Waiting for Pico USB..." : portOrError;
@@ -265,15 +303,22 @@ public partial class MainWindow : Window
                 DashBridgeInfo.Text = "Bridge: Disconnected";
                 DashBatteryInfo.Text = "Battery: --";
                 DashReportMode.Text = "Input Mode: --";
-                HapticLBar.Value = 0;
-                HapticRBar.Value = 0;
-                L2Bar.Value = 0;
-                R2Bar.Value = 0;
-                ButtonsActiveTxt.Text = "Pressed: (none)";
+                ResetTelemetryMeters();
                 DashControllerDiagram.ResetDisconnected();
                 TesterControllerDiagram.ResetDisconnected();
             }
         });
+    }
+
+    private void ResetTelemetryMeters()
+    {
+        DashHapticLBar.Value = 0;
+        DashHapticRBar.Value = 0;
+        HapticLBar.Value = 0;
+        HapticRBar.Value = 0;
+        L2Bar.Value = 0;
+        R2Bar.Value = 0;
+        ButtonsActiveTxt.Text = "Pressed: (none)";
     }
 
     private void PushSavedProfileToPico()
@@ -286,20 +331,42 @@ public partial class MainWindow : Window
         _pico.SetTrigger("r", _settings.RightTriggerKind, _settings.RightStart, _settings.RightEnd, _settings.RightForce, _settings.RightFreq);
     }
 
+    private void UpdateUsbIdentityIndicators(byte usbMode)
+    {
+        bool isXbox = usbMode == 1;
+        _lastUsbMode = usbMode;
+
+        BtnUsbDs5.Classes.Remove("accent");
+        BtnUsbX360.Classes.Remove("accent");
+        if (isXbox) BtnUsbX360.Classes.Add("accent");
+        else BtnUsbDs5.Classes.Add("accent");
+
+        string label = isXbox ? "Xbox 360" : "DualSense";
+        HeroModePill.Text = $"Mode: {label}";
+        TesterLayoutBadge.Text = $"Layout: {label}";
+        TesterL2Label.Text = isXbox ? "LT" : "L2";
+        TesterR2Label.Text = isXbox ? "RT" : "R2";
+
+        DashControllerDiagram.SetXboxMode(isXbox);
+        TesterControllerDiagram.SetXboxMode(isXbox);
+    }
+
     private void OnTelemetryReceived(TelemetrySample s)
     {
         if (s.BtControllerReady)
         {
             _mouse.Process(s, _platform);
         }
+        else
+        {
+            _mouse.ReleaseAllButtons(_platform);
+        }
 
         bool micPressedEdge = s.BtControllerReady && _syncMicButton && s.MicMuteBtn && !_wasMicBtn;
         _wasMicBtn = s.BtControllerReady && s.MicMuteBtn;
 
         if (!micPressedEdge && Interlocked.Exchange(ref _uiTelemetryPending, 1) != 0)
-        {
             return;
-        }
 
         Dispatcher.UIThread.Post(() =>
         {
@@ -307,28 +374,14 @@ public partial class MainWindow : Window
             if (!_pico.IsConnected) return;
 
             bool btNow = s.BtControllerReady && DateTime.UtcNow >= _ignoreBtReadyUntilUtc;
-            if (!s.BtControllerReady)
-            {
-                _ignoreBtReadyUntilUtc = DateTime.MinValue;
-            }
-            if (btNow && !_wasBtControllerReady)
-            {
-                PushSavedProfileToPico();
-            }
+            if (!s.BtControllerReady) _ignoreBtReadyUntilUtc = DateTime.MinValue;
+            if (btNow && !_wasBtControllerReady) PushSavedProfileToPico();
             _wasBtControllerReady = btNow;
 
-            if (btNow)
-            {
-                ConnectBtn.Content = "Disconnect Controller";
-                ConnectBtn.Classes.Remove("accent");
-                ConnectBtn.Classes.Add("danger");
-            }
-            else
-            {
-                ConnectBtn.Content = "Reconnect Controller";
-                ConnectBtn.Classes.Remove("danger");
-                ConnectBtn.Classes.Add("accent");
-            }
+            if (_lastUsbMode != s.UsbMode)
+                UpdateUsbIdentityIndicators(s.UsbMode);
+
+            SetConnectButton(isConnectedController: btNow, connectedToPico: true);
 
             if (micPressedEdge)
             {
@@ -344,11 +397,12 @@ public partial class MainWindow : Window
             StatusDot.Fill = btNow ? DotGreen : DotAmber;
             StatusText.Text = btNow ? $"Sensa Active ({usbShort})" : "Pico Ready — Turn on Sensa";
             PortBadgeTxt.Text = $"{_pico.ActivePortName ?? "USB"} • {usbShort}";
-            BatteryBadgeTxt.Text = btNow ? (s.FullMode0x31 ? $"Bat: {s.BatteryPct}%" : "Short 0x01") : "BT Idle";
+            string chgTag = s.ChargingState != 0 ? " ⚡" : "";
+            BatteryBadgeTxt.Text = btNow ? (s.FullMode0x31 ? $"Bat: {s.BatteryPct}%{chgTag}" : "Short 0x01") : "BT Idle";
 
             DashBridgeInfo.Text = $"Bridge: Mode {s.Mode} | 0x36 tx={s.Tx0x36} | Gain {s.HapticGainPct}% | {usbShort}";
             DashBatteryInfo.Text = btNow
-                ? (s.FullMode0x31 ? $"Battery: {s.BatteryPct}% (charging={s.ChargingState})" : "Battery: (waiting for 0x31 full mode)")
+                ? (s.FullMode0x31 ? $"Battery: {s.BatteryPct}%{chgTag} (charging={s.ChargingState})" : "Battery: (waiting for 0x31 full mode)")
                 : "Battery: --";
             DashReportMode.Text = btNow
                 ? (s.FullMode0x31 ? "Input Mode: Full 0x31 (Gyro + Touchpad active)" : "Input Mode: Short 0x01")
@@ -364,70 +418,74 @@ public partial class MainWindow : Window
             {
                 DashControllerDiagram.ResetDisconnected();
                 TesterControllerDiagram.ResetDisconnected();
-                HapticLBar.Value = 0;
-                HapticRBar.Value = 0;
-                L2Bar.Value = 0;
-                R2Bar.Value = 0;
+                ResetTelemetryMeters();
                 ButtonsActiveTxt.Text = "Pressed: (controller sleeping)";
                 return;
             }
 
-            // Live Interactive Vector Controller Diagrams
+            double hl = Math.Clamp(s.PeakHapticL, 0, 100);
+            double hr = Math.Clamp(s.PeakHapticR, 0, 100);
+            DashHapticLBar.Value = hl;
+            DashHapticRBar.Value = hr;
+            HapticLBar.Value = hl;
+            HapticRBar.Value = hr;
+
             DashControllerDiagram.UpdateTelemetry(s, _settings.LedR, _settings.LedG, _settings.LedB, _settings.LedOverride);
             if (_activeNavIndex == 1)
-            {
-                TesterControllerDiagram.UpdateTelemetry(s, _settings.LedR, _settings.LedG, _settings.LedB, _settings.LedOverride);
-
-                Canvas.SetLeft(LeftStickDot, (s.Lx / 255.0) * 104 + 2);
-                Canvas.SetTop(LeftStickDot, (s.Ly / 255.0) * 104 + 2);
-                LeftStickTxt.Text = $"{s.Lx}, {s.Ly}";
-
-                Canvas.SetLeft(RightStickDot, (s.Rx / 255.0) * 104 + 2);
-                Canvas.SetTop(RightStickDot, (s.Ry / 255.0) * 104 + 2);
-                RightStickTxt.Text = $"{s.Rx}, {s.Ry}";
-
-                L2Bar.Value = s.L2;
-                R2Bar.Value = s.R2;
-
-                var pressed = new List<string>();
-                if (s.Cross) pressed.Add("Cross");
-                if (s.Circle) pressed.Add("Circle");
-                if (s.Square) pressed.Add("Square");
-                if (s.Triangle) pressed.Add("Triangle");
-                if (s.L1) pressed.Add("L1");
-                if (s.R1) pressed.Add("R1");
-                if (s.L3) pressed.Add("L3");
-                if (s.R3) pressed.Add("R3");
-                if (s.Create) pressed.Add("Create");
-                if (s.Options) pressed.Add("Options");
-                if (s.Ps) pressed.Add("PS");
-                if (s.TouchpadClick) pressed.Add("TP-Click");
-                if (s.MicMuteBtn) pressed.Add("Mic");
-                if (s.DPad != 8) pressed.Add($"DPad({s.DPad})");
-                ButtonsActiveTxt.Text = pressed.Count > 0 ? "Pressed: " + string.Join(", ", pressed) : "Pressed: (none)";
-                RawBytesTxt.Text = $"Raw Btn Bytes: {s.Btn0:X2} {s.Btn1:X2} {s.Btn2:X2} {s.Btn3:X2}";
-
-                GyroTxt.Text = $"Gyro  (X,Y,Z): {s.GyroX,6}, {s.GyroY,6}, {s.GyroZ,6}";
-                AccelTxt.Text = $"Accel (X,Y,Z): {s.AccelX,6}, {s.AccelY,6}, {s.AccelZ,6}";
-
-                Touch0Dot.IsVisible = s.Touch0Down;
-                if (s.Touch0Down)
-                {
-                    Canvas.SetLeft(Touch0Dot, Math.Clamp(s.Touch0X / 1920.0 * 214, 0, 214));
-                    Canvas.SetTop(Touch0Dot, Math.Clamp(s.Touch0Y / 1080.0 * 104, 0, 104));
-                }
-                Touch1Dot.IsVisible = s.Touch1Down;
-                if (s.Touch1Down)
-                {
-                    Canvas.SetLeft(Touch1Dot, Math.Clamp(s.Touch1X / 1920.0 * 214, 0, 214));
-                    Canvas.SetTop(Touch1Dot, Math.Clamp(s.Touch1Y / 1080.0 * 104, 0, 104));
-                }
-                TouchTxt.Text = $"Touch 0: {(s.Touch0Down ? $"{s.Touch0X},{s.Touch0Y}" : "--")} | Touch 1: {(s.Touch1Down ? $"{s.Touch1X},{s.Touch1Y}" : "--")}";
-            }
-
-            HapticLBar.Value = Math.Clamp(s.PeakHapticL, 0, 100);
-            HapticRBar.Value = Math.Clamp(s.PeakHapticR, 0, 100);
+                UpdateTesterPage(s);
         });
+    }
+
+    private void UpdateTesterPage(TelemetrySample s)
+    {
+        TesterControllerDiagram.UpdateTelemetry(s, _settings.LedR, _settings.LedG, _settings.LedB, _settings.LedOverride);
+
+        Canvas.SetLeft(LeftStickDot, (s.Lx / 255.0) * 104 + 2);
+        Canvas.SetTop(LeftStickDot, (s.Ly / 255.0) * 104 + 2);
+        LeftStickTxt.Text = $"{s.Lx}, {s.Ly}";
+
+        Canvas.SetLeft(RightStickDot, (s.Rx / 255.0) * 104 + 2);
+        Canvas.SetTop(RightStickDot, (s.Ry / 255.0) * 104 + 2);
+        RightStickTxt.Text = $"{s.Rx}, {s.Ry}";
+
+        L2Bar.Value = s.L2;
+        R2Bar.Value = s.R2;
+
+        bool xbox = s.UsbMode == 1;
+        var pressed = new List<string>(14);
+        if (s.Cross) pressed.Add(xbox ? "A" : "Cross");
+        if (s.Circle) pressed.Add(xbox ? "B" : "Circle");
+        if (s.Square) pressed.Add(xbox ? "X" : "Square");
+        if (s.Triangle) pressed.Add(xbox ? "Y" : "Triangle");
+        if (s.L1) pressed.Add(xbox ? "LB" : "L1");
+        if (s.R1) pressed.Add(xbox ? "RB" : "R1");
+        if (s.L3) pressed.Add(xbox ? "LS" : "L3");
+        if (s.R3) pressed.Add(xbox ? "RS" : "R3");
+        if (s.Create) pressed.Add(xbox ? "Back" : "Create");
+        if (s.Options) pressed.Add(xbox ? "Start" : "Options");
+        if (s.Ps) pressed.Add(xbox ? "Guide" : "PS");
+        if (s.TouchpadClick && !xbox) pressed.Add("TP-Click");
+        if (s.MicMuteBtn) pressed.Add("Mic");
+        if (s.DPad != 8) pressed.Add($"DPad({s.DPad})");
+
+        ButtonsActiveTxt.Text = pressed.Count > 0 ? "Pressed: " + string.Join(", ", pressed) : "Pressed: (none)";
+        RawBytesTxt.Text = $"Raw Btn Bytes: {s.Btn0:X2} {s.Btn1:X2} {s.Btn2:X2} {s.Btn3:X2}";
+        GyroTxt.Text = $"Gyro  (X,Y,Z): {s.GyroX,6}, {s.GyroY,6}, {s.GyroZ,6}";
+        AccelTxt.Text = $"Accel (X,Y,Z): {s.AccelX,6}, {s.AccelY,6}, {s.AccelZ,6}";
+
+        Touch0Dot.IsVisible = s.Touch0Down;
+        if (s.Touch0Down)
+        {
+            Canvas.SetLeft(Touch0Dot, Math.Clamp(s.Touch0X / 1920.0 * 214, 0, 214));
+            Canvas.SetTop(Touch0Dot, Math.Clamp(s.Touch0Y / 1080.0 * 104, 0, 104));
+        }
+        Touch1Dot.IsVisible = s.Touch1Down;
+        if (s.Touch1Down)
+        {
+            Canvas.SetLeft(Touch1Dot, Math.Clamp(s.Touch1X / 1920.0 * 214, 0, 214));
+            Canvas.SetTop(Touch1Dot, Math.Clamp(s.Touch1Y / 1080.0 * 104, 0, 104));
+        }
+        TouchTxt.Text = $"Touch 0: {(s.Touch0Down ? $"{s.Touch0X},{s.Touch0Y}" : "--")} | Touch 1: {(s.Touch1Down ? $"{s.Touch1X},{s.Touch1Y}" : "--")}";
     }
 
     private void OnLogReceived(string line)
@@ -511,9 +569,16 @@ public partial class MainWindow : Window
         MicMuteTabBtn.Content = m ? "Windows Mic: MUTED (Click to Unmute)" : "Windows Mic: Unmuted (Click to Mute)";
     }
 
-    private void OnMicLedOffClick(object? s, RoutedEventArgs e) { _settings.MicLedMode = 0; _settings.Save(); _pico.SetMicLed(0); }
-    private void OnMicLedSolidClick(object? s, RoutedEventArgs e) { _settings.MicLedMode = 1; _settings.Save(); _pico.SetMicLed(1); }
-    private void OnMicLedPulseClick(object? s, RoutedEventArgs e) { _settings.MicLedMode = 2; _settings.Save(); _pico.SetMicLed(2); }
+    private void OnMicLedOffClick(object? s, RoutedEventArgs e) => SetMicLed(0);
+    private void OnMicLedSolidClick(object? s, RoutedEventArgs e) => SetMicLed(1);
+    private void OnMicLedPulseClick(object? s, RoutedEventArgs e) => SetMicLed(2);
+
+    private void SetMicLed(byte mode)
+    {
+        _settings.MicLedMode = mode;
+        _settings.Save();
+        _pico.SetMicLed(mode);
+    }
 
     private void OnHapticGainChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
@@ -550,6 +615,25 @@ public partial class MainWindow : Window
     {
         int pct = Math.Clamp(_settings.ImpulseTriggerStrengthPct, 25, 100);
         _pico.TriggerImpulseTest(pct, 650);
+    }
+
+    private void OnTriggerSliderChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loadingUi) return;
+        UpdateTriggerSliderLabels();
+    }
+
+    private void UpdateTriggerSliderLabels()
+    {
+        LStartValTxt.Text = $"{(int)Math.Round(LStartSlider.Value)}";
+        LEndValTxt.Text = $"{(int)Math.Round(LEndSlider.Value)}";
+        LForceValTxt.Text = $"{(int)Math.Round(LForceSlider.Value)}";
+        LFreqValTxt.Text = $"{(int)Math.Round(LFreqSlider.Value)} Hz";
+
+        RStartValTxt.Text = $"{(int)Math.Round(RStartSlider.Value)}";
+        REndValTxt.Text = $"{(int)Math.Round(REndSlider.Value)}";
+        RForceValTxt.Text = $"{(int)Math.Round(RForceSlider.Value)}";
+        RFreqValTxt.Text = $"{(int)Math.Round(RFreqSlider.Value)} Hz";
     }
 
     private void OnApplyLeftTriggerClick(object? s, RoutedEventArgs e)
@@ -596,6 +680,7 @@ public partial class MainWindow : Window
     {
         byte r = (byte)LedRSlider.Value, g = (byte)LedGSlider.Value, b = (byte)LedBSlider.Value;
         LedPreviewBox.Background = new SolidColorBrush(Color.FromRgb(r, g, b));
+        LedHexTxt.Text = $"#{r:X2}{g:X2}{b:X2}";
     }
 
     private void ApplyLed(byte r, byte g, byte b)
@@ -610,15 +695,17 @@ public partial class MainWindow : Window
 
     private void OnApplyLedClick(object? s, RoutedEventArgs e) => ApplyLed((byte)LedRSlider.Value, (byte)LedGSlider.Value, (byte)LedBSlider.Value);
     private void OnAutoLedClick(object? s, RoutedEventArgs e) { _settings.LedOverride = false; _settings.Save(); _pico.SetLedAuto(); }
+    private void OnPresetPsBlueClick(object? s, RoutedEventArgs e) => ApplyLed(0, 67, 220);
     private void OnPresetCyanClick(object? s, RoutedEventArgs e) => ApplyLed(0, 180, 255);
     private void OnPresetRedClick(object? s, RoutedEventArgs e) => ApplyLed(255, 20, 20);
     private void OnPresetGreenClick(object? s, RoutedEventArgs e) => ApplyLed(0, 255, 60);
     private void OnPresetPurpleClick(object? s, RoutedEventArgs e) => ApplyLed(170, 0, 255);
+    private void OnPresetAmberClick(object? s, RoutedEventArgs e) => ApplyLed(255, 165, 0);
 
-    private void OnUsbModeDs5Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("ds5", "DualSense (054C:0CE6)");
-    private void OnUsbModeX360Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("x360", "Xbox 360 XInput (1209:DB05)");
+    private void OnUsbModeDs5Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("ds5", "DualSense (054C:0CE6)", 0);
+    private void OnUsbModeX360Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("x360", "Xbox 360 XInput (1209:DB05)", 1);
 
-    private async Task SwitchUsbIdentityAsync(string cliMode, string label)
+    private async Task SwitchUsbIdentityAsync(string cliMode, string label, byte targetModeId)
     {
         if (_switchingUsbMode) return;
         if (!_pico.IsConnected)
@@ -649,6 +736,7 @@ public partial class MainWindow : Window
                 var ports = await Task.Run(() => _platform.DiscoverPicoComPorts());
                 if (ports.Count > 0 && await _pico.ConnectAsync(ports[0], wakeController: false))
                 {
+                    UpdateUsbIdentityIndicators(targetModeId);
                     UsbModeStatus.Text = $"Active USB Personality: {label}";
                     return;
                 }
@@ -760,6 +848,7 @@ public partial class MainWindow : Window
     {
         _hotplugTimer.Stop();
         _logFlushTimer.Stop();
+        _mouse.ReleaseAllButtons(_platform);
         _pico.Dispose();
         base.OnClosed(e);
     }

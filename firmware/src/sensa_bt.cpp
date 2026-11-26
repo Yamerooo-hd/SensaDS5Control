@@ -346,28 +346,6 @@ void sdp_callback(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16
     }
 }
 
-void write_ds5_vibration_trig(uint8_t dst[11], uint8_t pct) {
-    std::memset(dst, 0, 11);
-    if (pct == 0) {
-        dst[0] = 0x05; // Reset / Off
-        return;
-    }
-    uint8_t fp = static_cast<uint8_t>(std::clamp<int>((pct * 7 + 99) / 100, 1, 7));
-    uint8_t freq = static_cast<uint8_t>(18 + (pct * 38) / 100); // 18..56 Hz Xbox-style trigger pulse
-    uint32_t packed30 = 0;
-    for (int z = 0; z < 10; ++z) {
-        packed30 |= (static_cast<uint32_t>(fp & 0x07u) << (z * 3));
-    }
-    dst[0] = 0x26; // Official DualSense Vibration trigger mode
-    dst[1] = 0xFF; // Zones 0..7 enabled
-    dst[2] = 0x03; // Zones 8..9 enabled
-    dst[3] = static_cast<uint8_t>(packed30 & 0xFFu);
-    dst[4] = static_cast<uint8_t>((packed30 >> 8) & 0xFFu);
-    dst[5] = static_cast<uint8_t>((packed30 >> 16) & 0xFFu);
-    dst[6] = static_cast<uint8_t>((packed30 >> 24) & 0xFFu);
-    dst[9] = freq;
-}
-
 void compute_dynamic_impulse_pct(uint8_t &out_l_pct, uint8_t &out_r_pct) {
     uint32_t now_us = time_us_32();
     if (impulse_test_active && static_cast<int32_t>(now_us - impulse_test_until_us) < 0) {
@@ -537,11 +515,11 @@ void build_0x32_packet(uint8_t out_pkt[143], int8_t const haptics[64]) {
     write_bt_report_crc(r, 142);
 }
 
-void build_0x36_packet(uint8_t out_pkt[399], int8_t const haptics[64]) {
-    std::memset(out_pkt, 0, 399);
+void build_long_haptic_packet(uint8_t report_id, uint16_t payload_len, uint8_t *out_pkt, int8_t const haptics[64]) {
+    std::memset(out_pkt, 0, payload_len + 1u);
     out_pkt[0] = 0xA2;
     uint8_t *r = out_pkt + 1;
-    r[0] = 0x36;
+    r[0] = report_id;
     r[1] = static_cast<uint8_t>((bt_seq_nibble++ & 0x0Fu) << 4);
     r[2] = 0x91; r[3] = 0x07;
     r[4] = 0xFE; r[5] = 0x00; r[6] = 0x00; r[7] = 0x00; r[8] = 0x00; r[9] = 0x20;
@@ -550,23 +528,15 @@ void build_0x36_packet(uint8_t out_pkt[399], int8_t const haptics[64]) {
     fill_state_block(r + 13, false, true);
     r[76] = 0x92; r[77] = 64;
     std::memcpy(r + 78, haptics, 64);
-    write_bt_report_crc(r, 398);
+    write_bt_report_crc(r, payload_len);
+}
+
+void build_0x36_packet(uint8_t out_pkt[399], int8_t const haptics[64]) {
+    build_long_haptic_packet(0x36, 398, out_pkt, haptics);
 }
 
 void build_0x39_packet(uint8_t out_pkt[548], int8_t const haptics[64]) {
-    std::memset(out_pkt, 0, 548);
-    out_pkt[0] = 0xA2;
-    uint8_t *r = out_pkt + 1;
-    r[0] = 0x39;
-    r[1] = static_cast<uint8_t>((bt_seq_nibble++ & 0x0Fu) << 4);
-    r[2] = 0x91; r[3] = 0x07;
-    r[4] = 0xFE; r[5] = 0x00; r[6] = 0x00; r[7] = 0x00; r[8] = 0x00; r[9] = 0x20;
-    r[10] = bt_audio_ctr++;
-    r[11] = 0x90; r[12] = 63;
-    fill_state_block(r + 13, false, true);
-    r[76] = 0x92; r[77] = 64;
-    std::memcpy(r + 78, haptics, 64);
-    write_bt_report_crc(r, 547);
+    build_long_haptic_packet(0x39, 547, out_pkt, haptics);
 }
 
 void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
@@ -1064,6 +1034,22 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
     }
 }
 
+void initiate_bonded_connection(char const *tag) {
+    bd_addr_copy(peer_addr, bonded_addr);
+    peer_addr_valid = true;
+    outbound_connecting = true;
+    uint8_t st = hci_send_cmd(
+        &hci_create_connection,
+        bonded_addr,
+        hci_usable_acl_packet_types(),
+        2,
+        0,
+        0,
+        1
+    );
+    console_printf("[BT] %s %s -> status=0x%02X\n", tag, bd_addr_to_str(bonded_addr), st);
+}
+
 } // namespace
 
 bool bt_init() {
@@ -1125,6 +1111,10 @@ void bt_disconnect_now() {
     g_telemetry.bt_pairing_active = false;
     gap_inquiry_stop();
     inquiry_active = false;
+    if (outbound_connecting && peer_addr_valid) {
+        hci_send_cmd(&hci_create_connection_cancel, peer_addr);
+        outbound_connecting = false;
+    }
     if (acl_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(acl_handle);
         console_printf("[BT] Disconnecting controller ACL...\n");
@@ -1139,19 +1129,7 @@ void bt_reconnect_bonded() {
         bt_start_pairing();
         return;
     }
-    bd_addr_copy(peer_addr, bonded_addr);
-    peer_addr_valid = true;
-    outbound_connecting = true;
-    uint8_t st = hci_send_cmd(
-        &hci_create_connection,
-        bonded_addr,
-        hci_usable_acl_packet_types(),
-        2,
-        0,
-        0,
-        1
-    );
-    console_printf("[BT] Reconnecting bonded %s -> status=0x%02X\n", bd_addr_to_str(bonded_addr), st);
+    initiate_bonded_connection("Reconnecting bonded");
 }
 
 bool bt_start_sdp_discovery() {
@@ -1346,19 +1324,7 @@ void bt_poll() {
         static_cast<uint32_t>(now_us - state_working_us) > 2000000u &&
         has_bonded_addr && acl_handle == HCI_CON_HANDLE_INVALID && !pairing_window) {
         boot_reconnect_tried = true;
-        bd_addr_copy(peer_addr, bonded_addr);
-        peer_addr_valid = true;
-        outbound_connecting = true;
-        uint8_t st = hci_send_cmd(
-            &hci_create_connection,
-            bonded_addr,
-            hci_usable_acl_packet_types(),
-            2,
-            0,
-            0,
-            1
-        );
-        console_printf("[BT] Auto-connecting bonded %s -> status=0x%02X\n", bd_addr_to_str(bonded_addr), st);
+        initiate_bonded_connection("Auto-connecting bonded");
     }
 
     // Fallback to local L2CAP open if controller didn't initiate HID channels in 650ms (or Interrupt in 1.2s)

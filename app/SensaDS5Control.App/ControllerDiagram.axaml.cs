@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Media;
 using SensaDS5Control.Core;
 
@@ -7,17 +8,27 @@ namespace SensaDS5Control.App;
 public partial class ControllerDiagram : UserControl
 {
     private static readonly IBrush IdleBtnBrush = new SolidColorBrush(Color.Parse("#242C3D"));
-    private static readonly IBrush IdlePadBrush = new SolidColorBrush(Color.Parse("#2A3347"));
+    private static readonly IBrush IdleXboxBtnBrush = new SolidColorBrush(Color.Parse("#232D27"));
+    private static readonly IBrush IdlePadBrush = new SolidColorBrush(Color.Parse("#2C364D"));
+    private static readonly IBrush IdleXboxPadBrush = new SolidColorBrush(Color.Parse("#29342E"));
     private static readonly IBrush ActiveCyanBrush = new SolidColorBrush(Color.Parse("#38BDF8"));
     private static readonly IBrush ActiveGreenBrush = new SolidColorBrush(Color.Parse("#16A34A"));
     private static readonly IBrush ActiveRedBrush = new SolidColorBrush(Color.Parse("#DC2626"));
     private static readonly IBrush ActiveBlueBrush = new SolidColorBrush(Color.Parse("#2563EB"));
     private static readonly IBrush ActivePinkBrush = new SolidColorBrush(Color.Parse("#DB2777"));
-    private static readonly IBrush StickIdleRing = new SolidColorBrush(Color.Parse("#2F3950"));
-    private static readonly IBrush TouchClickFill = new SolidColorBrush(Color.Parse("#182538"));
-    private static readonly IBrush TouchIdleFill = new SolidColorBrush(Color.Parse("#0F131C"));
+    private static readonly IBrush ActiveAmberBrush = new SolidColorBrush(Color.Parse("#CA8A04"));
+    private static readonly IBrush StickIdleRing = new SolidColorBrush(Color.Parse("#303B54"));
+    private static readonly IBrush XboxStickIdleRing = new SolidColorBrush(Color.Parse("#33423A"));
+    private static readonly IBrush TouchClickFill = new SolidColorBrush(Color.Parse("#1E314B"));
+    private static readonly IBrush TouchIdleFill = new SolidColorBrush(Color.Parse("#161C29"));
     private static readonly IBrush MicLedOnBrush = new SolidColorBrush(Color.Parse("#F59E0B"));
     private static readonly IBrush MicLedOffBrush = new SolidColorBrush(Color.Parse("#334155"));
+    private static readonly IBrush GuideActiveBrush = new SolidColorBrush(Color.Parse("#166534"));
+    private static readonly IBrush GuideIdleBrush = new SolidColorBrush(Color.Parse("#1A2620"));
+    private static readonly IBrush LightbarIdleBrush = new SolidColorBrush(Color.Parse("#2B354B"));
+
+    private Color _cachedLbColor;
+    private IBrush? _cachedLbBrush;
 
     public ControllerDiagram()
     {
@@ -25,15 +36,43 @@ public partial class ControllerDiagram : UserControl
         ResetDisconnected();
     }
 
+    public void SetXboxMode(bool isXbox)
+    {
+        Ds5Layer.IsVisible = !isXbox;
+        XboxLayer.IsVisible = isXbox;
+    }
+
     public void UpdateTelemetry(TelemetrySample s, byte ledR, byte ledG, byte ledB, bool ledOverride)
     {
-        // Trigger pressure bars
-        L2Fill.Width = (s.L2 / 255.0) * 70.0;
-        R2Fill.Width = (s.R2 / 255.0) * 70.0;
+        bool isXbox = s.UsbMode == 1;
+        SetXboxMode(isXbox);
+
+        int dp = s.DPad;
+        bool dpUp = dp == 0 || dp == 1 || dp == 7;
+        bool dpRight = dp == 1 || dp == 2 || dp == 3;
+        bool dpDown = dp == 3 || dp == 4 || dp == 5;
+        bool dpLeft = dp == 5 || dp == 6 || dp == 7;
+
+        if (isXbox)
+        {
+            UpdateXboxLayer(s, dpUp, dpRight, dpDown, dpLeft);
+        }
+        else
+        {
+            UpdateDualSenseLayer(s, dpUp, dpRight, dpDown, dpLeft, ledR, ledG, ledB, ledOverride);
+        }
+    }
+
+    private void UpdateDualSenseLayer(
+        TelemetrySample s,
+        bool dpUp, bool dpRight, bool dpDown, bool dpLeft,
+        byte ledR, byte ledG, byte ledB, bool ledOverride)
+    {
+        L2Fill.Width = (s.L2 / 255.0) * 74.0;
+        R2Fill.Width = (s.R2 / 255.0) * 74.0;
         L2Lbl.Text = $"L2 {(s.L2 * 100 / 255)}%";
         R2Lbl.Text = $"R2 {(s.R2 * 100 / 255)}%";
 
-        // Bumpers / Meta
         BtnL1.Background = s.L1 ? ActiveCyanBrush : IdleBtnBrush;
         BtnR1.Background = s.R1 ? ActiveCyanBrush : IdleBtnBrush;
         BtnCreate.Background = s.Create ? ActiveCyanBrush : IdleBtnBrush;
@@ -42,49 +81,76 @@ public partial class ControllerDiagram : UserControl
         BtnMic.Background = s.MicMuteBtn ? ActiveCyanBrush : IdleBtnBrush;
         MicLedStrip.Background = s.MicLedMode > 0 ? MicLedOnBrush : MicLedOffBrush;
 
-        // D-Pad (0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW, 8=Neutral)
-        int dp = s.DPad;
-        DpadUp.Background = (dp == 0 || dp == 1 || dp == 7) ? ActiveCyanBrush : IdlePadBrush;
-        DpadRight.Background = (dp == 1 || dp == 2 || dp == 3) ? ActiveCyanBrush : IdlePadBrush;
-        DpadDown.Background = (dp == 3 || dp == 4 || dp == 5) ? ActiveCyanBrush : IdlePadBrush;
-        DpadLeft.Background = (dp == 5 || dp == 6 || dp == 7) ? ActiveCyanBrush : IdlePadBrush;
+        DpadUp.Background = dpUp ? ActiveCyanBrush : IdlePadBrush;
+        DpadRight.Background = dpRight ? ActiveCyanBrush : IdlePadBrush;
+        DpadDown.Background = dpDown ? ActiveCyanBrush : IdlePadBrush;
+        DpadLeft.Background = dpLeft ? ActiveCyanBrush : IdlePadBrush;
 
-        // Face buttons
         BtnTriangle.Background = s.Triangle ? ActiveGreenBrush : IdleBtnBrush;
         BtnCircle.Background = s.Circle ? ActiveRedBrush : IdleBtnBrush;
         BtnCross.Background = s.Cross ? ActiveBlueBrush : IdleBtnBrush;
         BtnSquare.Background = s.Square ? ActivePinkBrush : IdleBtnBrush;
 
-        // Thumbsticks (base at 149,152 and 281,152; travel +-11px)
-        double lxOff = ((s.Lx - 128) / 128.0) * 11.0;
-        double lyOff = ((s.Ly - 128) / 128.0) * 11.0;
-        Canvas.SetLeft(LeftStickDome, 149 + lxOff);
-        Canvas.SetTop(LeftStickDome, 152 + lyOff);
-        LeftStickRing.Stroke = s.L3 ? ActiveCyanBrush : StickIdleRing;
+        PositionStick(LeftStickDome, LeftStickRing, 154, 148, s.Lx, s.Ly, s.L3, StickIdleRing, ActiveCyanBrush);
+        PositionStick(RightStickDome, RightStickRing, 294, 148, s.Rx, s.Ry, s.R3, StickIdleRing, ActiveCyanBrush);
 
-        double rxOff = ((s.Rx - 128) / 128.0) * 11.0;
-        double ryOff = ((s.Ry - 128) / 128.0) * 11.0;
-        Canvas.SetLeft(RightStickDome, 281 + rxOff);
-        Canvas.SetTop(RightStickDome, 152 + ryOff);
-        RightStickRing.Stroke = s.R3 ? ActiveCyanBrush : StickIdleRing;
-
-        // Touchpad click + lightbar color + finger dots
-        LightbarBorder.Background = s.TouchpadClick ? TouchClickFill : TouchIdleFill;
+        Ds5TouchpadShape.Fill = s.TouchpadClick ? TouchClickFill : TouchIdleFill;
         var lbColor = ledOverride ? Color.FromRgb(ledR, ledG, ledB) : Color.Parse("#00A0FF");
-        LightbarBorder.BorderBrush = new SolidColorBrush(lbColor);
+        if (_cachedLbBrush == null || _cachedLbColor != lbColor)
+        {
+            _cachedLbColor = lbColor;
+            _cachedLbBrush = new SolidColorBrush(lbColor);
+        }
+        Ds5LightbarGlow.Stroke = _cachedLbBrush;
 
-        TpDot0.IsVisible = s.Touch0Down;
-        if (s.Touch0Down)
-        {
-            Canvas.SetLeft(TpDot0, Math.Clamp(s.Touch0X / 1920.0 * 132.0, 2, 132));
-            Canvas.SetTop(TpDot0, Math.Clamp(s.Touch0Y / 1080.0 * 62.0, 2, 62));
-        }
-        TpDot1.IsVisible = s.Touch1Down;
-        if (s.Touch1Down)
-        {
-            Canvas.SetLeft(TpDot1, Math.Clamp(s.Touch1X / 1920.0 * 132.0, 2, 132));
-            Canvas.SetTop(TpDot1, Math.Clamp(s.Touch1Y / 1080.0 * 62.0, 2, 62));
-        }
+        PositionTouchDot(TpDot0, s.Touch0Down, s.Touch0X, s.Touch0Y);
+        PositionTouchDot(TpDot1, s.Touch1Down, s.Touch1X, s.Touch1Y);
+    }
+
+    private void UpdateXboxLayer(TelemetrySample s, bool dpUp, bool dpRight, bool dpDown, bool dpLeft)
+    {
+        LtFill.Width = (s.L2 / 255.0) * 76.0;
+        RtFill.Width = (s.R2 / 255.0) * 76.0;
+        LtLbl.Text = $"LT {(s.L2 * 100 / 255)}%";
+        RtLbl.Text = $"RT {(s.R2 * 100 / 255)}%";
+
+        BtnLb.Background = s.L1 ? ActiveGreenBrush : IdleXboxBtnBrush;
+        BtnRb.Background = s.R1 ? ActiveGreenBrush : IdleXboxBtnBrush;
+        BtnXboxBack.Background = s.Create ? ActiveGreenBrush : IdleXboxBtnBrush;
+        BtnXboxStart.Background = s.Options ? ActiveGreenBrush : IdleXboxBtnBrush;
+        BtnXboxGuide.Background = s.Ps ? GuideActiveBrush : GuideIdleBrush;
+
+        XbxDpadUp.Background = dpUp ? ActiveGreenBrush : IdleXboxPadBrush;
+        XbxDpadRight.Background = dpRight ? ActiveGreenBrush : IdleXboxPadBrush;
+        XbxDpadDown.Background = dpDown ? ActiveGreenBrush : IdleXboxPadBrush;
+        XbxDpadLeft.Background = dpLeft ? ActiveGreenBrush : IdleXboxPadBrush;
+
+        BtnXboxA.Background = s.Cross ? ActiveGreenBrush : IdleXboxBtnBrush;
+        BtnXboxB.Background = s.Circle ? ActiveRedBrush : IdleXboxBtnBrush;
+        BtnXboxX.Background = s.Square ? ActiveBlueBrush : IdleXboxBtnBrush;
+        BtnXboxY.Background = s.Triangle ? ActiveAmberBrush : IdleXboxBtnBrush;
+
+        PositionStick(XbxLsDome, XbxLsRing, 99, 91, s.Lx, s.Ly, s.L3, XboxStickIdleRing, ActiveGreenBrush);
+        PositionStick(XbxRsDome, XbxRsRing, 293, 158, s.Rx, s.Ry, s.R3, XboxStickIdleRing, ActiveGreenBrush);
+    }
+
+    private static void PositionStick(
+        Ellipse dome, Ellipse ring, double baseLeft, double baseTop,
+        byte axisX, byte axisY, bool click, IBrush idleRing, IBrush activeRing)
+    {
+        double dx = ((axisX - 128) / 128.0) * 11.0;
+        double dy = ((axisY - 128) / 128.0) * 11.0;
+        Canvas.SetLeft(dome, baseLeft + dx);
+        Canvas.SetTop(dome, baseTop + dy);
+        ring.Stroke = click ? activeRing : idleRing;
+    }
+
+    private static void PositionTouchDot(Ellipse dot, bool down, ushort x, ushort y)
+    {
+        dot.IsVisible = down;
+        if (!down) return;
+        Canvas.SetLeft(dot, Math.Clamp(x / 1920.0 * 130.0, 2, 130));
+        Canvas.SetTop(dot, Math.Clamp(y / 1080.0 * 60.0, 2, 60));
     }
 
     public void ResetDisconnected()
@@ -112,16 +178,32 @@ public partial class ControllerDiagram : UserControl
         BtnCross.Background = IdleBtnBrush;
         BtnSquare.Background = IdleBtnBrush;
 
-        Canvas.SetLeft(LeftStickDome, 149);
-        Canvas.SetTop(LeftStickDome, 152);
-        Canvas.SetLeft(RightStickDome, 281);
-        Canvas.SetTop(RightStickDome, 152);
-        LeftStickRing.Stroke = StickIdleRing;
-        RightStickRing.Stroke = StickIdleRing;
+        PositionStick(LeftStickDome, LeftStickRing, 154, 148, 128, 128, false, StickIdleRing, ActiveCyanBrush);
+        PositionStick(RightStickDome, RightStickRing, 294, 148, 128, 128, false, StickIdleRing, ActiveCyanBrush);
 
-        LightbarBorder.Background = TouchIdleFill;
-        LightbarBorder.BorderBrush = new SolidColorBrush(Color.Parse("#293347"));
+        Ds5TouchpadShape.Fill = TouchIdleFill;
+        Ds5LightbarGlow.Stroke = LightbarIdleBrush;
         TpDot0.IsVisible = false;
         TpDot1.IsVisible = false;
+
+        LtFill.Width = 0;
+        RtFill.Width = 0;
+        LtLbl.Text = "LT  --";
+        RtLbl.Text = "RT  --";
+        BtnLb.Background = IdleXboxBtnBrush;
+        BtnRb.Background = IdleXboxBtnBrush;
+        BtnXboxBack.Background = IdleXboxBtnBrush;
+        BtnXboxStart.Background = IdleXboxBtnBrush;
+        BtnXboxGuide.Background = GuideIdleBrush;
+        XbxDpadUp.Background = IdleXboxPadBrush;
+        XbxDpadRight.Background = IdleXboxPadBrush;
+        XbxDpadDown.Background = IdleXboxPadBrush;
+        XbxDpadLeft.Background = IdleXboxPadBrush;
+        BtnXboxA.Background = IdleXboxBtnBrush;
+        BtnXboxB.Background = IdleXboxBtnBrush;
+        BtnXboxX.Background = IdleXboxBtnBrush;
+        BtnXboxY.Background = IdleXboxBtnBrush;
+        PositionStick(XbxLsDome, XbxLsRing, 99, 91, 128, 128, false, XboxStickIdleRing, ActiveGreenBrush);
+        PositionStick(XbxRsDome, XbxRsRing, 293, 158, 128, 128, false, XboxStickIdleRing, ActiveGreenBrush);
     }
 }

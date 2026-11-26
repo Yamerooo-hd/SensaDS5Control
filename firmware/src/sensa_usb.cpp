@@ -146,35 +146,25 @@ bool xbox_send_pkt(uint8_t const *data, uint16_t len) {
     return xbox_in_busy;
 }
 
+uint8_t dpad_to_cardinal_mask(uint8_t dpad) {
+    uint8_t mask = 0;
+    if (dpad == 0 || dpad == 1 || dpad == 7) mask |= 0x01u; // Up
+    if (dpad == 3 || dpad == 4 || dpad == 5) mask |= 0x02u; // Down
+    if (dpad == 5 || dpad == 6 || dpad == 7) mask |= 0x04u; // Left
+    if (dpad == 1 || dpad == 2 || dpad == 3) mask |= 0x08u; // Right
+    return mask;
+}
+
 void push_xbox_motors_to_bt(uint8_t l_main, uint8_t r_main, uint8_t l_trig, uint8_t r_trig) {
     std::memset(g_host_output.payload, 0, sizeof(g_host_output.payload));
     g_host_output.payload[0] = 0x03u; // CompatibleVibration | HapticsSelect
     g_host_output.payload[2] = r_main;
     g_host_output.payload[3] = l_main;
 
-    // Experimental Xbox Series Impulse Trigger (0..100%) -> DualSense 0x26 Trigger Vibration
-    auto write_trig = [](uint8_t *dst, uint8_t pct) {
-        std::memset(dst, 0, 11);
-        if (pct == 0) {
-            dst[0] = 0x05; // Off
-            return;
-        }
-        uint8_t fp = static_cast<uint8_t>(std::clamp<int>((pct * 7 + 99) / 100, 1, 7));
-        uint8_t freq = static_cast<uint8_t>(26 + (pct * 34) / 100);
-        uint8_t packed = static_cast<uint8_t>((fp & 0x07u) | ((fp & 0x07u) << 3));
-        dst[0] = 0x26; // Vibration mode
-        dst[1] = 0xFF; // Zone mask low
-        dst[2] = 0x03; // Zone mask high
-        dst[3] = packed;
-        dst[4] = packed;
-        dst[5] = packed;
-        dst[9] = freq; // Vibration frequency in Hz
-    };
-
     if (g_usb_mode == UsbMode::XboxSeries) {
         g_host_output.payload[0] |= 0x0Cu; // RightTriggerEffect | LeftTriggerEffect
-        write_trig(g_host_output.payload + 10, r_trig);
-        write_trig(g_host_output.payload + 21, l_trig);
+        write_ds5_vibration_trig(g_host_output.payload + 10, r_trig);
+        write_ds5_vibration_trig(g_host_output.payload + 21, l_trig);
         g_telemetry.last_r2_mode = r_trig ? 0x26 : 0x05;
         g_telemetry.last_l2_mode = l_trig ? 0x26 : 0x05;
     }
@@ -193,12 +183,7 @@ void build_x360_input(uint8_t out20[20]) {
     out20[0] = 0x00;
     out20[1] = 0x14;
     uint8_t const *b = latest_input_report;
-    uint8_t dpad = b[7] & 0x0Fu;
-    uint16_t btns = 0;
-    if (dpad == 0 || dpad == 1 || dpad == 7) btns |= 0x0001; // Up
-    if (dpad == 3 || dpad == 4 || dpad == 5) btns |= 0x0002; // Down
-    if (dpad == 5 || dpad == 6 || dpad == 7) btns |= 0x0004; // Left
-    if (dpad == 1 || dpad == 2 || dpad == 3) btns |= 0x0008; // Right
+    uint16_t btns = dpad_to_cardinal_mask(b[7] & 0x0Fu);
     if (b[8] & 0x20u) btns |= 0x0010; // Options -> Start
     if (b[8] & 0x10u) btns |= 0x0020; // Create -> Back
     if (b[8] & 0x40u) btns |= 0x0040; // L3
@@ -222,19 +207,14 @@ void build_x360_input(uint8_t out20[20]) {
 void build_gip_input_payload(uint8_t out14[14]) {
     std::memset(out14, 0, 14);
     uint8_t const *b = latest_input_report;
-    uint8_t b0 = 0, b1 = 0;
+    uint8_t b0 = 0;
+    uint8_t b1 = dpad_to_cardinal_mask(b[7] & 0x0Fu);
     if (b[8] & 0x20u) b0 |= 0x04u; // Options -> Menu
     if (b[8] & 0x10u) b0 |= 0x08u; // Create -> View
     if (b[7] & 0x20u) b0 |= 0x10u; // Cross -> A
     if (b[7] & 0x40u) b0 |= 0x20u; // Circle -> B
     if (b[7] & 0x10u) b0 |= 0x40u; // Square -> X
     if (b[7] & 0x80u) b0 |= 0x80u; // Triangle -> Y
-
-    uint8_t dpad = b[7] & 0x0Fu;
-    if (dpad == 0 || dpad == 1 || dpad == 7) b1 |= 0x01u;
-    if (dpad == 3 || dpad == 4 || dpad == 5) b1 |= 0x02u;
-    if (dpad == 5 || dpad == 6 || dpad == 7) b1 |= 0x04u;
-    if (dpad == 1 || dpad == 2 || dpad == 3) b1 |= 0x08u;
     if (b[8] & 0x01u) b1 |= 0x10u; // L1 -> LB
     if (b[8] & 0x02u) b1 |= 0x20u; // R1 -> RB
     if (b[8] & 0x40u) b1 |= 0x40u; // L3
