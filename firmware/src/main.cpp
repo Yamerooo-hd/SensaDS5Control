@@ -107,7 +107,7 @@ void poll_bootsel_and_led(uint32_t now_us) {
 int main() {
     if (watchdog_hw->scratch[0] == sensa::kUsbModeScratchMagic) {
         uint32_t m = watchdog_hw->scratch[1];
-        if (m <= 2) {
+        if (m <= 1) {
             sensa::g_usb_mode = static_cast<sensa::UsbMode>(m);
         }
     }

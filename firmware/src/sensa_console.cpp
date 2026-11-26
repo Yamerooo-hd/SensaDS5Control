@@ -176,16 +176,19 @@ void handle_command(char *line) {
         }
     } else if (eq_ci(cmd, "usbmode")) {
         if (argc < 2) {
-            console_printf("[USBMODE] Active: %s (usage: usbmode <ds5|x360|xseries>)\n", usb_mode_name(g_usb_mode));
+            console_printf("[USBMODE] Active: %s (usage: usbmode <ds5|x360>)\n", usb_mode_name(g_usb_mode));
         } else {
             UsbMode target = g_usb_mode;
             bool ok = true;
             if (eq_ci(tokens[1], "ds5")) target = UsbMode::DualSense;
             else if (eq_ci(tokens[1], "x360")) target = UsbMode::Xbox360;
-            else if (eq_ci(tokens[1], "xseries")) target = UsbMode::XboxSeries;
+            else if (eq_ci(tokens[1], "xseries")) {
+                console_printf("[USBMODE] 'xseries' is disabled (causes Windows xboxgip.sys kernel crash). Use 'ds5' or 'x360'.\n");
+                return;
+            }
             else ok = false;
             if (!ok) {
-                console_printf("[USBMODE] Unknown '%s'. Use ds5, x360, or xseries.\n", tokens[1]);
+                console_printf("[USBMODE] Unknown '%s'. Use ds5 or x360.\n", tokens[1]);
             } else {
                 watchdog_hw->scratch[0] = kUsbModeScratchMagic;
                 watchdog_hw->scratch[1] = static_cast<uint32_t>(target);
@@ -264,7 +267,7 @@ void console_print_help() {
     console_printf("  led <r> <g> <b> | auto - RGB lightbar override / auto\n");
     console_printf("  micled <0|1|2>      - Mic Mute LED (0=off, 1=solid, 2=pulse)\n");
     console_printf("  trig <R|L|both> <auto|mode p0..p9> - Adaptive trigger override\n");
-    console_printf("  usbmode <ds5|x360|xseries> - Switch USB identity & soft-reboot\n");
+    console_printf("  usbmode <ds5|x360>  - Switch USB identity & soft-reboot\n");
     console_printf("  tele <0|1> | btmon <0|1> | unlock <0..4> | dbg\n");
     console_printf("  pair | forget | disconnect | reboot | bootsel\n\n");
 }

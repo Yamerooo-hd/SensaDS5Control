@@ -66,7 +66,6 @@
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <Button Content="DualSense (Native Haptics + Triggers)" Click="OnUsbModeDs5Click" />
                   <Button Content="Xbox 360 (XInput Universal)" Click="OnUsbModeX360Click" />
-                  <Button Content="Xbox Series (Experimental Trigger Rumble)" Click="OnUsbModeXSeriesClick" />
                 </StackPanel>
                 <TextBlock x:Name="UsbModeStatus" Classes="dim" Text="Active USB Personality: DualSense Wireless Controller (054C:0CE6)" />
               </StackPanel>

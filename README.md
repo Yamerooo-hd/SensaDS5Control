@@ -13,5 +13,5 @@ Wireless DualSense / **Cosmic Byte Sensa (`PS5_JG11`)** bridge firmware for **Ra
 - Custom adaptive trigger profiles (Resistance, Gun/Section, Weapon, Vibration, Bow)
 - RGB lightbar & Mic Mute LED control + Windows mic mute sync
 - Touchpad-to-Mouse mode
-- USB identity switcher (DualSense / Xbox 360 XInput / Experimental Xbox Series Impulse Triggers)
+- USB identity switcher (DualSense / Xbox 360 XInput)
 - 1-click GitHub Releases firmware & software updater (`bootsel` -> `RP2350`)
