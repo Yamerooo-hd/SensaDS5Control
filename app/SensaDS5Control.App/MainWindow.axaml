@@ -29,8 +29,8 @@
       <TabItem Header="Dashboard">
         <ScrollViewer>
           <StackPanel Spacing="10" Margin="4">
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-              <Border Classes="card">
+            <Grid ColumnDefinitions="*,*">
+              <Border Classes="card" Margin="0,0,5,0">
                 <StackPanel Spacing="8">
                   <TextBlock Classes="hdr" Text="Wireless Bridge Status" />
                   <TextBlock x:Name="DashBridgeInfo" Text="Bridge: Not connected" />
@@ -39,7 +39,7 @@
                   <TextBlock Classes="dim" Text="Note: Real DualSense haptics stream automatically via 0x36 (398B) when supported games send 4-ch audio." TextWrapping="Wrap" />
                 </StackPanel>
               </Border>
-              <Border Grid.Column="1" Classes="card">
+              <Border Grid.Column="1" Classes="card" Margin="5,0,0,0">
                 <StackPanel Spacing="8">
                   <TextBlock Classes="hdr" Text="Mouse &amp; Gyro Control" />
                   <CheckBox x:Name="TouchMouseChk" Content="Enable Touchpad as Mouse (1-finger move, tap/click, 2-finger scroll)"
@@ -79,8 +79,8 @@
       <TabItem Header="Inputs &amp; Gyro Tester">
         <ScrollViewer>
           <StackPanel Spacing="10" Margin="4">
-            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="12">
-              <Border Classes="card">
+            <Grid ColumnDefinitions="Auto,Auto,*">
+              <Border Classes="card" Margin="0,0,10,0">
                 <StackPanel Spacing="6" HorizontalAlignment="Center">
                   <TextBlock Classes="hdr" Text="Left Stick" />
                   <Canvas Width="120" Height="120" Background="#12141A">
@@ -90,7 +90,7 @@
                   <TextBlock x:Name="LeftStickTxt" Classes="dim" Text="128, 128" HorizontalAlignment="Center" />
                 </StackPanel>
               </Border>
-              <Border Grid.Column="1" Classes="card">
+              <Border Grid.Column="1" Classes="card" Margin="0,0,10,0">
                 <StackPanel Spacing="6" HorizontalAlignment="Center">
                   <TextBlock Classes="hdr" Text="Right Stick" />
                   <Canvas Width="120" Height="120" Background="#12141A">
@@ -103,9 +103,9 @@
               <Border Grid.Column="2" Classes="card">
                 <StackPanel Spacing="6">
                   <TextBlock Classes="hdr" Text="Triggers &amp; Buttons" />
-                  <Grid ColumnDefinitions="40,*" RowDefinitions="Auto,Auto" RowSpacing="6">
-                    <TextBlock Text="L2" VerticalAlignment="Center" />
-                    <ProgressBar x:Name="L2Bar" Grid.Column="1" Minimum="0" Maximum="255" Height="14" />
+                  <Grid ColumnDefinitions="40,*" RowDefinitions="Auto,Auto">
+                    <TextBlock Text="L2" VerticalAlignment="Center" Margin="0,0,0,6" />
+                    <ProgressBar x:Name="L2Bar" Grid.Column="1" Minimum="0" Maximum="255" Height="14" Margin="0,0,0,6" />
                     <TextBlock Grid.Row="1" Text="R2" VerticalAlignment="Center" />
                     <ProgressBar x:Name="R2Bar" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="255" Height="14" />
                   </Grid>
@@ -115,8 +115,8 @@
               </Border>
             </Grid>
 
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
-              <Border Classes="card">
+            <Grid ColumnDefinitions="*,*">
+              <Border Classes="card" Margin="0,0,5,0">
                 <StackPanel Spacing="6">
                   <TextBlock Classes="hdr" Text="Touchpad Live Monitor (requires Full 0x31)" />
                   <Canvas Width="320" Height="140" Background="#12141A" HorizontalAlignment="Left">
@@ -126,12 +126,12 @@
                   <TextBlock x:Name="TouchTxt" Classes="dim" Text="Touch 0: -- | Touch 1: --" />
                 </StackPanel>
               </Border>
-              <Border Grid.Column="1" Classes="card">
+              <Border Grid.Column="1" Classes="card" Margin="5,0,0,0">
                 <StackPanel Spacing="6">
                   <TextBlock Classes="hdr" Text="Gyroscope &amp; Accelerometer" />
                   <TextBlock x:Name="GyroTxt" Text="Gyro (X, Y, Z): 0, 0, 0" />
                   <TextBlock x:Name="AccelTxt" Text="Accel (X, Y, Z): 0, 0, 0" />
-                  <TextBlock Classes="dim" Text="If Gyro &amp; Touchpad read 0 while connected, use Diagnostics -> Unlock 0x31 test buttons so we inspect your BT init!" TextWrapping="Wrap" />
+                  <TextBlock Classes="dim" Text="If Gyro &amp; Touchpad read 0 while connected, use Console &amp; Updates -> Unlock 0x31 test buttons so we inspect your BT init!" TextWrapping="Wrap" />
                 </StackPanel>
               </Border>
             </Grid>
@@ -152,9 +152,9 @@
                           ValueChanged="OnHapticGainChanged" />
                   <TextBlock x:Name="HapticGainLabel" Text="150%" VerticalAlignment="Center" FontWeight="SemiBold" />
                 </StackPanel>
-                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto" RowSpacing="6">
-                  <TextBlock Text="Game CH3 L:" VerticalAlignment="Center" />
-                  <ProgressBar x:Name="HapticLBar" Grid.Column="1" Minimum="0" Maximum="100" Height="14" />
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto">
+                  <TextBlock Text="Game CH3 L:" VerticalAlignment="Center" Margin="0,0,0,6" />
+                  <ProgressBar x:Name="HapticLBar" Grid.Column="1" Minimum="0" Maximum="100" Height="14" Margin="0,0,0,6" />
                   <TextBlock Grid.Row="1" Text="Game CH4 R:" VerticalAlignment="Center" />
                   <ProgressBar x:Name="HapticRBar" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Height="14" />
                 </Grid>
@@ -164,12 +164,12 @@
             <Border Classes="card">
               <StackPanel Spacing="8">
                 <TextBlock Classes="hdr" Text="Function Testers" />
-                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-                  <Button Content="0x36 Crisp Tap (160Hz, 300ms)" Click="OnTestCrispTapClick" />
-                  <Button Content="0x36 Haptic Buzz (120Hz, 900ms)" Click="OnTestHapticBuzzClick" />
-                  <Button Content="0x36 Deep Thump (55Hz, 700ms)" Click="OnTestDeepThumpClick" />
-                  <Button Content="0x31 Classic Rumble Left" Click="OnTestRumbleLeftClick" />
-                  <Button Content="0x31 Classic Rumble Right" Click="OnTestRumbleRightClick" />
+                <WrapPanel Orientation="Horizontal">
+                  <Button Content="0x36 Crisp Tap (160Hz, 300ms)" Click="OnTestCrispTapClick" Margin="0,0,8,8" />
+                  <Button Content="0x36 Haptic Buzz (120Hz, 900ms)" Click="OnTestHapticBuzzClick" Margin="0,0,8,8" />
+                  <Button Content="0x36 Deep Thump (55Hz, 700ms)" Click="OnTestDeepThumpClick" Margin="0,0,8,8" />
+                  <Button Content="0x31 Classic Rumble Left" Click="OnTestRumbleLeftClick" Margin="0,0,8,8" />
+                  <Button Content="0x31 Classic Rumble Right" Click="OnTestRumbleRightClick" Margin="0,0,8,8" />
                 </WrapPanel>
               </StackPanel>
             </Border>
@@ -180,8 +180,8 @@
       <!-- TAB 4: ADAPTIVE TRIGGERS -->
       <TabItem Header="Adaptive Triggers">
         <ScrollViewer>
-          <Grid ColumnDefinitions="*,*" ColumnSpacing="10" Margin="4">
-            <Border Classes="card">
+          <Grid ColumnDefinitions="*,*" Margin="4">
+            <Border Classes="card" Margin="0,0,5,0">
               <StackPanel Spacing="8">
                 <TextBlock Classes="hdr" Text="Left Trigger (L2)" />
                 <ComboBox x:Name="LeftTrigCombo" SelectedIndex="0" HorizontalAlignment="Stretch" />
@@ -200,7 +200,7 @@
               </StackPanel>
             </Border>
 
-            <Border Grid.Column="1" Classes="card">
+            <Border Grid.Column="1" Classes="card" Margin="5,0,0,0">
               <StackPanel Spacing="8">
                 <TextBlock Classes="hdr" Text="Right Trigger (R2)" />
                 <ComboBox x:Name="RightTrigCombo" SelectedIndex="0" HorizontalAlignment="Stretch" />
@@ -237,13 +237,13 @@
                     <Slider x:Name="LedBSlider" Minimum="0" Maximum="255" Value="255" ValueChanged="OnLedSliderChanged" />
                   </StackPanel>
                 </StackPanel>
-                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-                  <Button Content="Apply RGB" Click="OnApplyLedClick" Background="#2563EB" Foreground="White" />
-                  <Button Content="Follow Game (Auto)" Click="OnAutoLedClick" />
-                  <Button Content="Cyan" Click="OnPresetCyanClick" />
-                  <Button Content="Crimson" Click="OnPresetRedClick" />
-                  <Button Content="Emerald" Click="OnPresetGreenClick" />
-                  <Button Content="Purple" Click="OnPresetPurpleClick" />
+                <WrapPanel Orientation="Horizontal">
+                  <Button Content="Apply RGB" Click="OnApplyLedClick" Background="#2563EB" Foreground="White" Margin="0,0,8,8" />
+                  <Button Content="Follow Game (Auto)" Click="OnAutoLedClick" Margin="0,0,8,8" />
+                  <Button Content="Cyan" Click="OnPresetCyanClick" Margin="0,0,8,8" />
+                  <Button Content="Crimson" Click="OnPresetRedClick" Margin="0,0,8,8" />
+                  <Button Content="Emerald" Click="OnPresetGreenClick" Margin="0,0,8,8" />
+                  <Button Content="Purple" Click="OnPresetPurpleClick" Margin="0,0,8,8" />
                 </WrapPanel>
               </StackPanel>
             </Border>
@@ -266,18 +266,18 @@
 
       <!-- TAB 6: CONSOLE & UPDATES -->
       <TabItem Header="Console &amp; Updates">
-        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8" Margin="4">
-          <Border Classes="card">
+        <Grid RowDefinitions="Auto,*,Auto" Margin="4">
+          <Border Classes="card" Margin="0,0,0,8">
             <StackPanel Spacing="8">
               <TextBlock Classes="hdr" Text="Diagnostics &amp; GitHub Auto-Updater" />
-              <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-                <Button Content="Status" Click="OnCmdStatusClick" />
-                <Button Content="Debug Dump" Click="OnCmdDbgClick" />
-                <Button Content="Unlock 0x31 (1)" Click="OnUnlock1Click" />
-                <Button Content="Unlock 0x31 (2)" Click="OnUnlock2Click" />
-                <Button Content="Unlock 0x31 (3)" Click="OnUnlock3Click" />
-                <Button Content="Unlock 0x31 (4)" Click="OnUnlock4Click" />
-                <ToggleButton x:Name="BtMonToggle" Content="Back-Paddle / Input Diff Monitor" Click="OnBtMonToggleClick" />
+              <WrapPanel Orientation="Horizontal">
+                <Button Content="Status" Click="OnCmdStatusClick" Margin="0,0,8,8" />
+                <Button Content="Debug Dump" Click="OnCmdDbgClick" Margin="0,0,8,8" />
+                <Button Content="Unlock 0x31 (1)" Click="OnUnlock1Click" Margin="0,0,8,8" />
+                <Button Content="Unlock 0x31 (2)" Click="OnUnlock2Click" Margin="0,0,8,8" />
+                <Button Content="Unlock 0x31 (3)" Click="OnUnlock3Click" Margin="0,0,8,8" />
+                <Button Content="Unlock 0x31 (4)" Click="OnUnlock4Click" Margin="0,0,8,8" />
+                <ToggleButton x:Name="BtMonToggle" Content="Back-Paddle / Input Diff Monitor" Click="OnBtMonToggleClick" Margin="0,0,8,8" />
               </WrapPanel>
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBox x:Name="TokenBox" Width="320" Watermark="Optional GitHub Token (for Private Repo Updates)" PasswordChar="•" />
@@ -289,10 +289,10 @@
           </Border>
 
           <TextBox x:Name="ConsoleLogBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True"
-                   FontFamily="Consolas" FontSize="12" Background="#0D0F14" TextWrapping="Wrap" />
+                   FontFamily="Consolas" FontSize="12" Background="#0D0F14" TextWrapping="Wrap" Margin="0,0,0,8" />
 
-          <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-            <TextBox x:Name="CliInputBox" Watermark="Send raw command to Pico (e.g. status, mode 36, tune hgain 180)..." KeyDown="OnCliKeyDown" />
+          <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+            <TextBox x:Name="CliInputBox" Watermark="Send raw command to Pico (e.g. status, mode 36, tune hgain 180)..." KeyDown="OnCliKeyDown" Margin="0,0,8,0" />
             <Button Grid.Column="1" Content="Send" Click="OnSendCliClick" />
           </Grid>
         </Grid>
