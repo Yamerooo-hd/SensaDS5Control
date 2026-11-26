@@ -175,7 +175,7 @@ void handle_command(char *line) {
             console_printf("[LED] Usage: led <r> <g> <b> | led auto\n");
         }
     } else if (eq_ci(cmd, "usbmode")) {
-        if (n < 2) {
+        if (argc < 2) {
             console_printf("[USBMODE] Active: %s (usage: usbmode <ds5|x360|xseries>)\n", usb_mode_name(g_usb_mode));
         } else {
             UsbMode target = g_usb_mode;
