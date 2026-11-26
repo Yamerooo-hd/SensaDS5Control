@@ -259,8 +259,8 @@ bool send_gip_hello() {
     pkt[2] = next_seq(gip_cmd_seq);
     pkt[3] = 0x1C; // 28B payload
     std::memcpy(pkt + 4, gip_device_id, 8);
-    write_u16_le(pkt + 12, 0x045E); // VID
-    write_u16_le(pkt + 14, 0x0B12); // PID
+    write_u16_le(pkt + 12, 0x1209); // VID (must match USB descriptor)
+    write_u16_le(pkt + 14, 0xDB06); // PID (must match USB descriptor)
     write_u16_le(pkt + 16, 0x0001); // FW Major = 1 (matches Metadata[0x27]=1)
     write_u16_le(pkt + 18, 0x0000); // FW Minor = 0 (matches Metadata[0x28]=0)
     write_u16_le(pkt + 20, 0x0001); // Build

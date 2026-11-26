@@ -18,8 +18,8 @@ enum class UsbMode : uint8_t {
 inline char const *usb_mode_name(UsbMode m) {
     switch (m) {
         case UsbMode::DualSense: return "DualSense (054C:0CE6)";
-        case UsbMode::Xbox360: return "Xbox 360 XInput (045E:028E)";
-        case UsbMode::XboxSeries: return "Xbox Series GIP [Experimental] (045E:0B12)";
+        case UsbMode::Xbox360: return "Xbox 360 XInput (1209:DB05)";
+        case UsbMode::XboxSeries: return "Xbox Series GIP [Experimental] (1209:DB06)";
         default: return "unknown";
     }
 }

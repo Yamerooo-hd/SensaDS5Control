@@ -184,8 +184,8 @@ public partial class MainWindow : Window
             DashReportMode.Text = s.FullMode0x31 ? "Input Mode: Full 0x31 (Gyro + Touchpad active)" : "Input Mode: Short 0x01 (Sticks/Buttons/Triggers)";
             UsbModeStatus.Text = s.UsbMode switch
             {
-                1 => "Active USB Personality: Xbox 360 XInput Controller (045E:028E)",
-                2 => "Active USB Personality: Xbox Series GIP [Experimental Trigger Rumble] (045E:0B12)",
+                1 => "Active USB Personality: Xbox 360 XInput Controller (1209:DB05)",
+                2 => "Active USB Personality: Xbox Series GIP [Experimental Trigger Rumble] (1209:DB06)",
                 _ => "Active USB Personality: DualSense Wireless Controller (054C:0CE6)"
             };
             SubStatusText.Text = $"{(s.FullMode0x31 ? "Full 0x31" : "Short 0x01")} | tx0x36={s.Tx0x36} | Peak L={s.PeakHapticL:0.0}% R={s.PeakHapticR:0.0}%";
@@ -406,8 +406,8 @@ public partial class MainWindow : Window
     private void OnPresetPurpleClick(object? s, RoutedEventArgs e) => ApplyLed(170, 0, 255);
 
     private void OnUsbModeDs5Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("ds5", "DualSense (054C:0CE6)");
-    private void OnUsbModeX360Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("x360", "Xbox 360 XInput (045E:028E)");
-    private void OnUsbModeXSeriesClick(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("xseries", "Xbox Series GIP [Experimental] (045E:0B12)");
+    private void OnUsbModeX360Click(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("x360", "Xbox 360 XInput (1209:DB05)");
+    private void OnUsbModeXSeriesClick(object? s, RoutedEventArgs e) => _ = SwitchUsbIdentityAsync("xseries", "Xbox Series GIP [Experimental] (1209:DB06)");
 
     private async Task SwitchUsbIdentityAsync(string cliMode, string label)
     {

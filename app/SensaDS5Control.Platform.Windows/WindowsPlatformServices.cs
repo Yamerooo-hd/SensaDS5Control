@@ -18,6 +18,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
                 foreach (var vidPid in usb.GetSubKeyNames())
                 {
                     if (!vidPid.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase) &&
+                        !vidPid.Contains("VID_1209", StringComparison.OrdinalIgnoreCase) &&
                         !vidPid.Contains("VID_045E", StringComparison.OrdinalIgnoreCase) &&
                         !vidPid.Contains("VID_2E8A", StringComparison.OrdinalIgnoreCase))
                         continue;

@@ -47,8 +47,9 @@ static tusb_desc_device_t const desc_device_x360 = {
     .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol    = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor           = 0x045E,
-    .idProduct          = 0x028E,
+    // Composite-safe VID/PID so Windows loads usbccgp (XUSB10 on MI_00 + CDC COM on MI_01)
+    .idVendor           = 0x1209,
+    .idProduct          = 0xDB05,
     .bcdDevice          = 0x0157,
     .iManufacturer      = STRID_MS_MFG,
     .iProduct           = STRID_X360_PROD,
@@ -64,8 +65,9 @@ static tusb_desc_device_t const desc_device_xseries = {
     .bDeviceSubClass    = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol    = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0    = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor           = 0x045E,
-    .idProduct          = 0x0B12,
+    // Composite-safe VID/PID so Windows loads usbccgp (XGIP10 on MI_00 + CDC COM on MI_01)
+    .idVendor           = 0x1209,
+    .idProduct          = 0xDB06,
     .bcdDevice          = 0x0509,
     .iManufacturer      = STRID_MS_MFG,
     .iProduct           = STRID_XSERIES_PROD,
