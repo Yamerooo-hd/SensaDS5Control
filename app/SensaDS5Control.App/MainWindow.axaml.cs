@@ -440,17 +440,17 @@ public partial class MainWindow : Window
         BtnNukePico.IsEnabled = false;
         BtnCancelFwOp.IsVisible = true;
         _fwActionCts = new CancellationTokenSource();
+        var progress = new UiStatusProgress(msg => FwActionStatusTxt.Text = msg);
 
         try
         {
-            var progress = new Progress<string>(msg => FwActionStatusTxt.Text = msg);
             Action? sendBootsel = _pico.IsConnected ? (() => _pico.EnterBootsel()) : null;
 
             string result = await _platform.FlashUf2ToPicoAsync(
                 uf2Bytes, fileName, sendBootsel, progress, _fwActionCts.Token);
 
             _pico.Disconnect("Pico rebooting...", disconnectController: false);
-            FwActionStatusTxt.Text = $"{result} {successMessage}";
+            progress.Complete($"{result} {successMessage}");
             SubStatusText.Text = successMessage;
 
             if (!isNuke)
@@ -468,11 +468,11 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            FwActionStatusTxt.Text = "Firmware operation canceled.";
+            progress.Complete("Firmware operation canceled.");
         }
         catch (Exception ex)
         {
-            FwActionStatusTxt.Text = $"Operation failed: {ex.Message}";
+            progress.Complete($"Operation failed: {ex.Message}");
         }
         finally
         {
@@ -1244,5 +1244,41 @@ public partial class MainWindow : Window
         _mouse.ReleaseAllButtons(_platform);
         _pico.Dispose();
         base.OnClosed(e);
+    }
+
+    private sealed class UiStatusProgress : IProgress<string>
+    {
+        private readonly Action<string> _apply;
+        private volatile bool _active = true;
+
+        public UiStatusProgress(Action<string> apply)
+        {
+            _apply = apply;
+        }
+
+        public void Complete(string finalMessage)
+        {
+            _active = false;
+            if (Dispatcher.UIThread.CheckAccess())
+                _apply(finalMessage);
+            else
+                Dispatcher.UIThread.Post(() => _apply(finalMessage));
+        }
+
+        public void Report(string value)
+        {
+            if (!_active) return;
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                if (_active) _apply(value);
+            }
+            else
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (_active) _apply(value);
+                });
+            }
+        }
     }
 }
