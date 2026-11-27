@@ -1569,14 +1569,17 @@ public partial class MainWindow : Window
                 UpdaterStatusTxt.Text = "Self-update only applies when running packaged SensaDS5Control.exe.";
                 return;
             }
-            var staged = currentExe + ".new";
+            var staged = Path.Combine(Path.GetTempPath(), "SensaDS5Control.exe.new");
             await File.WriteAllBytesAsync(staged, exeBytes);
             var bat = Path.Combine(Path.GetTempPath(), "sensads5_update.cmd");
             await File.WriteAllTextAsync(bat, $"@echo off\r\nping -n 2 127.0.0.1 >nul\r\nmove /y \"{staged}\" \"{currentExe}\"\r\nstart \"\" \"{currentExe}\"\r\n");
+            bool needsAdmin = currentExe.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), StringComparison.OrdinalIgnoreCase);
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c \"{bat}\"")
             {
-                CreateNoWindow = true,
-                UseShellExecute = false
+                CreateNoWindow = !needsAdmin,
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+                UseShellExecute = needsAdmin,
+                Verb = needsAdmin ? "runas" : ""
             });
             _reallyClosing = true;
             Close();
