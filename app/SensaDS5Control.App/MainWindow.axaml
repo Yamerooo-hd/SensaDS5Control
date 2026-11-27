@@ -206,6 +206,21 @@
                 </Grid>
                 <TextBlock x:Name="UsbModeStatus" Classes="dim" Text="Active USB Personality: DualSense Wireless Controller (054C:0CE6)" TextWrapping="Wrap" />
                 <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="USB Polling Rate (Universal)" FontWeight="SemiBold" FontSize="13"
+                             VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" />
+                  <TextBlock x:Name="PollRateBadgeTxt" Grid.Column="1" Text="1000 Hz (1 ms)" FontSize="12"
+                             VerticalAlignment="Center" Foreground="{DynamicResource NavActiveFgBrush}" FontWeight="SemiBold" />
+                </Grid>
+                <Grid ColumnDefinitions="*,*,*">
+                  <Button x:Name="BtnPoll250" Content="250 Hz" Click="OnPollRate250Click"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,4,0" />
+                  <Button x:Name="BtnPoll500" Grid.Column="1" Content="500 Hz" Click="OnPollRate500Click"
+                          HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="2,0,2,0" />
+                  <Button x:Name="BtnPoll1000" Grid.Column="2" Content="1000 Hz" Click="OnPollRate1000Click"
+                          Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="4,0,0,0" />
+                </Grid>
+                <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
                 <TextBlock Text="Impulse Triggers (Rumble → L2 / R2 0x26)" FontWeight="SemiBold" FontSize="13"
                            Foreground="{DynamicResource TextPrimaryBrush}" />
                 <ComboBox x:Name="ImpulseModeCombo" HorizontalAlignment="Stretch" SelectionChanged="OnImpulseModeChanged" />

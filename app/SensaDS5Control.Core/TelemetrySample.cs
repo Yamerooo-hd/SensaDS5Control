@@ -89,7 +89,8 @@ public sealed record PicoConfigSample(
     bool LeftTriggerOverride,
     bool RightTriggerOverride,
     string FirmwareVersion = "0.1.x",
-    bool HasBondedKey = false)
+    bool HasBondedKey = false,
+    int UsbPollRateHz = 1000)
 {
     public static bool TryParse(string line, out PicoConfigSample cfg)
     {
@@ -99,6 +100,8 @@ public sealed record PicoConfigSample(
         if (p.Length < 15) return false;
         try
         {
+            int parsedPoll = (p.Length > 17 && int.TryParse(p[17].Trim(), out var hz)) ? hz : 1000;
+            if (parsedPoll is not (250 or 500 or 1000)) parsedPoll = 1000;
             cfg = new PicoConfigSample(
                 IsFreshFlash: p[1] == "1",
                 UsbMode: byte.Parse(p[2]),
@@ -115,7 +118,8 @@ public sealed record PicoConfigSample(
                 LeftTriggerOverride: p[13] == "1",
                 RightTriggerOverride: p[14] == "1",
                 FirmwareVersion: p.Length > 15 && !string.IsNullOrWhiteSpace(p[15]) ? p[15].Trim() : "0.1.x",
-                HasBondedKey: p.Length > 16 && p[16].Trim() == "1");
+                HasBondedKey: p.Length > 16 && p[16].Trim() == "1",
+                UsbPollRateHz: parsedPoll);
             return true;
         }
         catch

@@ -23,6 +23,7 @@ DspConfig g_dsp_config{};
 Telemetry g_telemetry{};
 HostOutputState g_host_output{};
 uint8_t g_stick_deadzone_pct = 4;
+uint16_t g_usb_poll_rate_hz = 1000;
 
 namespace {
 

@@ -137,6 +137,13 @@ extern DspConfig g_dsp_config;
 extern Telemetry g_telemetry;
 extern HostOutputState g_host_output;
 extern uint8_t g_stick_deadzone_pct;
+extern uint16_t g_usb_poll_rate_hz;
+
+inline uint16_t normalize_poll_rate_hz(int hz) {
+    if (hz <= 375) return 250;
+    if (hz <= 750) return 500;
+    return 1000;
+}
 
 // CRC32 with Sony BT seeds (0xA2 for reports, 0x53 for SET_FEATURE)
 inline constexpr uint32_t crc32_table_entry(uint32_t index) {
