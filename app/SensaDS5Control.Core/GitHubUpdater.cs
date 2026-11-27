@@ -47,7 +47,7 @@ public static class GitHubUpdater
         {
             return await http.GetByteArrayAsync(dl, ct);
         }
-        return await DownloadWorkflowFileAsync(http, "Build SensaBridge Firmware", ".uf2", ct);
+        return await DownloadWorkflowFileAsync(http, "Build SensaDS5Control Suite", ".uf2", ct);
     }
 
     public static async Task<byte[]?> DownloadLatestAppExeBytesAsync(string? token, CancellationToken ct)
@@ -60,7 +60,7 @@ public static class GitHubUpdater
             if (dl.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return bytes;
             return ExtractFirstMatchingFromZip(bytes, ".exe");
         }
-        return await DownloadWorkflowFileAsync(http, "Build SensaDS5Control Desktop App", ".exe", ct);
+        return await DownloadWorkflowFileAsync(http, "Build SensaDS5Control Suite", ".exe", ct);
     }
 
     private static async Task<byte[]?> DownloadWorkflowFileAsync(HttpClient http, string workflowName, string extension, CancellationToken ct)

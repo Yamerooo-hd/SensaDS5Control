@@ -95,7 +95,7 @@ pico_add_linker_script_override_path(sensa-bridge
 )
 
 pico_set_program_name(sensa-bridge "SensaBridge")
-pico_set_program_version(sensa-bridge "0.1.0")
+pico_set_program_version(sensa-bridge "0.2.0")
 
 pico_enable_stdio_uart(sensa-bridge 0)
 pico_enable_stdio_usb(sensa-bridge 0)

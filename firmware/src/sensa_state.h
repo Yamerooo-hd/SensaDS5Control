@@ -9,6 +9,8 @@
 
 namespace sensa {
 
+constexpr char const *kFirmwareVersion = "0.2.0";
+
 enum class UsbMode : uint8_t {
     DualSense = 0, // 054C:0CE6 DualSense (4ch Audio + HID + CDC)
     Xbox360 = 1,   // 1209:DB05 Xbox 360 Wired XInput + CDC

@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <EmbeddedResource Include="BundledFirmware\**" Condition="Exists('BundledFirmware')" />
   </ItemGroup>
 
   <ItemGroup>

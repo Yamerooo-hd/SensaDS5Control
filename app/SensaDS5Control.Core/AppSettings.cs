@@ -22,6 +22,7 @@ public sealed class AppSettings
 
     public bool MinimizeToTray { get; set; } = true;
     public bool StartWithWindows { get; set; } = false;
+    public bool DeveloperMode { get; set; } = false;
 
     public TriggerPresetKind LeftTriggerKind { get; set; } = TriggerPresetKind.AutoGame;
     public byte LeftStart { get; set; } = 40;

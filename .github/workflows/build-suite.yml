@@ -1,0 +1,146 @@
+name: Build SensaDS5Control Suite
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-firmware:
+    runs-on: ubuntu-latest
+    env:
+      PICO_SDK_REF: "2.3.0"
+      TINYUSB_REF: "2d56dc533e45e4e91b15e93fdab5e22e964f328d"
+      ARM_TOOLCHAIN_VERSION: "15.2.rel1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build xz-utils curl python3
+
+      - name: Cache Arm GNU Toolchain
+        id: cache-arm-toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/arm-gnu-toolchain
+          key: arm-gnu-toolchain-${{ env.ARM_TOOLCHAIN_VERSION }}-${{ runner.arch }}
+
+      - name: Install Arm GNU Toolchain
+        if: steps.cache-arm-toolchain.outputs.cache-hit != 'true'
+        run: |
+          ARCH="${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}"
+          TARBALL="arm-gnu-toolchain-${ARM_TOOLCHAIN_VERSION}-${ARCH}-arm-none-eabi.tar.xz"
+          curl -fL "https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_TOOLCHAIN_VERSION}/binrel/${TARBALL}" -o "/tmp/${TARBALL}"
+          mkdir -p "${{ runner.temp }}/arm-gnu-toolchain"
+          tar -xf "/tmp/${TARBALL}" -C "${{ runner.temp }}/arm-gnu-toolchain" --strip-components=1
+          rm -f "/tmp/${TARBALL}"
+
+      - name: Cache Pico SDK and TinyUSB
+        id: cache-pico-sdk
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/pico-sdk
+            ${{ runner.temp }}/tinyusb
+          key: pico-sdk-${{ env.PICO_SDK_REF }}-tinyusb-${{ env.TINYUSB_REF }}-btstack-cyw43-lwip-v2
+
+      - name: Checkout Pico SDK and TinyUSB
+        if: steps.cache-pico-sdk.outputs.cache-hit != 'true'
+        run: |
+          rm -rf "${{ runner.temp }}/pico-sdk" "${{ runner.temp }}/tinyusb"
+          git clone --depth 1 --branch "${{ env.PICO_SDK_REF }}" https://github.com/raspberrypi/pico-sdk.git "${{ runner.temp }}/pico-sdk"
+          git -C "${{ runner.temp }}/pico-sdk" submodule update --init --depth 1 lib/btstack lib/cyw43-driver lib/lwip
+          git clone https://github.com/hathach/tinyusb.git "${{ runner.temp }}/tinyusb"
+          git -C "${{ runner.temp }}/tinyusb" checkout "${{ env.TINYUSB_REF }}"
+
+      - name: Build SensaBridge and flash_nuke (pico2_w)
+        run: |
+          export PATH="${{ runner.temp }}/arm-gnu-toolchain/bin:$PATH"
+          cmake -S firmware -B build-fw -G Ninja \
+            -DPICO_SDK_PATH="${{ runner.temp }}/pico-sdk" \
+            -DPICO_TINYUSB_PATH="${{ runner.temp }}/tinyusb" \
+            -DPICO_BOARD=pico2_w \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-fw -j
+          arm-none-eabi-size build-fw/sensa-bridge.elf
+
+          cmake -S firmware/nuke -B build-nuke -G Ninja \
+            -DPICO_SDK_PATH="${{ runner.temp }}/pico-sdk" \
+            -DPICO_BOARD=pico2_w \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-nuke -j
+
+          mkdir -p dist-fw
+          cp build-fw/sensa-bridge.uf2 dist-fw/SensaBridge.uf2
+          cp build-nuke/pico_flash_nuke.uf2 dist-fw/flash_nuke.uf2
+          grep -oP 'kFirmwareVersion\s*=\s*"\K[^"]+' firmware/src/sensa_state.h > dist-fw/fw_version.txt || echo "0.2.0" > dist-fw/fw_version.txt
+
+      - name: Upload Pico 2 W firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensa-bridge-pico2_w
+          path: dist-fw/*
+
+  build-windows:
+    needs: build-firmware
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download compiled firmware into BundledFirmware
+        uses: actions/download-artifact@v4
+        with:
+          name: sensa-bridge-pico2_w
+          path: app/SensaDS5Control.App/BundledFirmware
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Publish single-file win-x64 app (with bundled firmware)
+        run: |
+          dotnet publish app/SensaDS5Control.App/SensaDS5Control.App.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o dist-win
+
+      - name: Package Portable ZIP
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-portable, dist-packages | Out-Null
+          Copy-Item dist-win\SensaDS5Control.exe dist-portable\
+          Copy-Item README.md, LICENSE, CREDITS.md dist-portable\
+          Compress-Archive -Path dist-portable\* -DestinationPath dist-packages\SensaDS5Control-Portable-win-x64.zip -Force
+
+      - name: Build Windows Installer (.exe) via Inno Setup
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            $cmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+            else {
+              choco install innosetup --no-progress -y
+              $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+            }
+          }
+          $ver = (Get-Content app/SensaDS5Control.App/BundledFirmware/fw_version.txt -Raw).Trim()
+          & $iscc "/DAppVersion=$ver" "packaging/windows/SensaDS5Control.iss"
+          Get-ChildItem dist-packages | Select-Object Name, Length
+
+      - name: Upload Windows EXE artifact (self-update compatible)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensa-ds5-control-win-x64
+          path: dist-win/*
+
+      - name: Upload Windows Setup Installer & Portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensa-ds5-control-packages
+          path: dist-packages/*

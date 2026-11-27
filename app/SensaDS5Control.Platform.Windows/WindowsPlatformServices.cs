@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.IO.Ports;
 using System.Runtime.InteropServices;
 using System.Text;
 using SensaDS5Control.Core;
@@ -15,8 +16,66 @@ public sealed class WindowsPlatformServices : IPlatformServices
     private const int KEY_READ = 0x20019;
 
     public IReadOnlyList<string> DiscoverPicoComPorts()
+        => EnumeratePicoPorts(includeGenericPico: false).Select(p => p.Port).ToList();
+
+    public PicoHardwareProbe ProbePicoHardware()
     {
-        var found = new List<string>();
+        var bootsel = FindBootselDrive();
+        if (bootsel != null)
+            return new PicoHardwareProbe(PicoHardwareState.BootselDriveReady, null, bootsel);
+
+        var ports = EnumeratePicoPorts(includeGenericPico: true);
+        var sensaPort = ports.FirstOrDefault(p => !p.IsGeneric2E8A);
+        if (sensaPort.Port != null)
+            return new PicoHardwareProbe(PicoHardwareState.SensaBridgeActive, sensaPort.Port, null);
+
+        var genericPort = ports.FirstOrDefault(p => p.IsGeneric2E8A);
+        if (genericPort.Port != null)
+            return new PicoHardwareProbe(PicoHardwareState.GenericPicoCom, genericPort.Port, null);
+
+        return new PicoHardwareProbe(PicoHardwareState.NotConnected, null, null);
+    }
+
+    public async Task<bool> TryEnterBootsel1200BaudAsync(string comPort, CancellationToken ct)
+    {
+        try
+        {
+            using var sp = new SerialPort(comPort, 1200, Parity.None, 8, StopBits.One) { DtrEnable = false };
+            sp.Open();
+            await Task.Delay(80, ct);
+            sp.Close();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? FindBootselDrive()
+    {
+        foreach (var d in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if (d.DriveType == DriveType.Removable && d.IsReady)
+                {
+                    var label = d.VolumeLabel ?? "";
+                    if (label.Equals("RP2350", StringComparison.OrdinalIgnoreCase) ||
+                        label.Equals("RPI-RP2", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return d.RootDirectory.FullName;
+                    }
+                }
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    private static List<(string Port, bool IsGeneric2E8A)> EnumeratePicoPorts(bool includeGenericPico)
+    {
+        var found = new List<(string Port, bool IsGeneric2E8A)>();
         nint devInfo = SetupDiGetClassDevs(ref GuidDevInterfaceComPort, null, nint.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
         if (devInfo == nint.Zero || devInfo == new nint(-1))
         {
@@ -33,11 +92,10 @@ public sealed class WindowsPlatformServices : IPlatformServices
                     continue;
 
                 var instanceId = new string(idBuf, 0, Math.Min(len, idBuf.Length)).TrimEnd('\0');
-                bool isPico = instanceId.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase) ||
-                              instanceId.Contains("VID_1209&PID_DB05", StringComparison.OrdinalIgnoreCase) ||
-                              instanceId.Contains("VID_1209&PID_DB06", StringComparison.OrdinalIgnoreCase) ||
-                              instanceId.Contains("VID_2E8A", StringComparison.OrdinalIgnoreCase);
-                if (!isPico) continue;
+                bool isSensa = instanceId.Contains("VID_054C&PID_0CE6", StringComparison.OrdinalIgnoreCase) ||
+                               instanceId.Contains("VID_1209&PID_DB05", StringComparison.OrdinalIgnoreCase);
+                bool is2e8a = instanceId.Contains("VID_2E8A", StringComparison.OrdinalIgnoreCase);
+                if (!isSensa && !(includeGenericPico && is2e8a)) continue;
 
                 nint hKey = SetupDiOpenDevRegKey(devInfo, ref devData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
                 if (hKey == nint.Zero || hKey == new nint(-1)) continue;
@@ -49,9 +107,9 @@ public sealed class WindowsPlatformServices : IPlatformServices
                     {
                         var port = Encoding.Unicode.GetString(data, 0, (int)dataSize).TrimEnd('\0');
                         if (port.StartsWith("COM", StringComparison.OrdinalIgnoreCase) &&
-                            !found.Contains(port, StringComparer.OrdinalIgnoreCase))
+                            found.All(x => !x.Port.Equals(port, StringComparison.OrdinalIgnoreCase)))
                         {
-                            found.Add(port);
+                            found.Add((port, is2e8a));
                         }
                     }
                 }
@@ -139,29 +197,56 @@ public sealed class WindowsPlatformServices : IPlatformServices
         catch { }
     }
 
-    public async Task<string> FlashUf2ToPicoAsync(byte[] uf2Bytes, Action sendBootselCommand, CancellationToken ct)
+    public async Task<string> FlashUf2ToPicoAsync(
+        byte[] uf2Bytes,
+        string uf2FileName,
+        Action? sendBootselCommand,
+        IProgress<string>? status,
+        CancellationToken ct)
     {
-        sendBootselCommand();
-        for (int i = 0; i < 60; i++)
+        var probe = ProbePicoHardware();
+        string? rootDir = probe.BootselDrivePath;
+
+        if (rootDir == null)
         {
-            ct.ThrowIfCancellationRequested();
-            foreach (var d in DriveInfo.GetDrives())
+            if (probe.State == PicoHardwareState.SensaBridgeActive && sendBootselCommand != null)
             {
-                if (d.DriveType == DriveType.Removable && d.IsReady)
-                {
-                    var label = d.VolumeLabel ?? "";
-                    if (label.Equals("RP2350", StringComparison.OrdinalIgnoreCase) ||
-                        label.Equals("RPI-RP2", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var target = Path.Combine(d.RootDirectory.FullName, "SensaBridge.uf2");
-                        await File.WriteAllBytesAsync(target, uf2Bytes, ct);
-                        return $"Flashed {uf2Bytes.Length:N0} bytes to {d.Name} ({label}). Pico rebooting...";
-                    }
-                }
+                status?.Report("Rebooting SensaBridge Pico into RP2350 BOOTSEL mode...");
+                sendBootselCommand();
             }
-            await Task.Delay(250, ct);
+            else if (probe.State == PicoHardwareState.GenericPicoCom && probe.ComPort != null)
+            {
+                status?.Report($"Found Pico on {probe.ComPort}; sending 1200-baud BOOTSEL reset...");
+                await TryEnterBootsel1200BaudAsync(probe.ComPort, ct);
+            }
+            else
+            {
+                status?.Report("Hold the white BOOTSEL button on Pico 2 W and plug USB in...");
+            }
+
+            // Wait up to 25 seconds for RP2350 / RPI-RP2 drive (handles both fast reboot & manual BOOTSEL plug)
+            for (int i = 0; i < 100; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                rootDir = FindBootselDrive();
+                if (rootDir != null) break;
+                if (i == 12 && probe.State == PicoHardwareState.GenericPicoCom)
+                {
+                    status?.Report("Still waiting — unplug Pico, hold white BOOTSEL button, and plug back in...");
+                }
+                await Task.Delay(250, ct);
+            }
         }
-        throw new TimeoutException("Timed out waiting for RP2350 BOOTSEL drive. Hold BOOTSEL and replug Pico if needed.");
+
+        if (rootDir == null)
+        {
+            throw new TimeoutException("Timed out waiting for RP2350 BOOTSEL drive. Hold BOOTSEL on Pico and plug into USB.");
+        }
+
+        status?.Report($"Writing {uf2Bytes.Length:N0} bytes to {rootDir}...");
+        var target = Path.Combine(rootDir, uf2FileName);
+        await File.WriteAllBytesAsync(target, uf2Bytes, ct);
+        return $"Flashed {uf2FileName} ({uf2Bytes.Length:N0} bytes) to {rootDir}.";
     }
 
     [StructLayout(LayoutKind.Sequential)]

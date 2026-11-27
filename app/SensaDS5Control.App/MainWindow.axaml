@@ -5,6 +5,7 @@
         Title="SensaDS5Control — Cosmic Byte Sensa Wireless Suite"
         Icon="/Assets/app_icon.ico"
         Width="1150" Height="750" MinWidth="940" MinHeight="640"
+        KeyDown="OnWindowKeyDown"
         Background="{DynamicResource AppBgBrush}">
 
   <Grid ColumnDefinitions="265,*">
@@ -46,12 +47,6 @@
               </WrapPanel>
               <Button x:Name="ConnectBtn" Content="Connect" Click="OnConnectClick"
                       HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Classes="accent" />
-              <Grid ColumnDefinitions="*,*">
-                <Button Content="Pair New" Click="OnPairNewClick" FontSize="11" Padding="6,5"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,3,0" />
-                <Button Grid.Column="1" Content="Reset Bond" Click="OnForgetBondClick" FontSize="11" Padding="6,5"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="3,0,0,0" />
-              </Grid>
             </StackPanel>
           </Border>
 
@@ -89,10 +84,16 @@
                 <TextBlock Text="Lighting, Theme &amp; Mic" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
-            <Button x:Name="NavConsoleBtn" Classes="nav" Click="OnNavClick" Tag="5">
+            <Button x:Name="NavFirmwareBtn" Classes="nav" Click="OnNavClick" Tag="5">
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <PathIcon Width="16" Height="16" Data="M 7,2 L 17,2 L 19,5 L 19,19 L 17,22 L 7,22 L 5,19 L 5,5 Z M 9,7 L 15,7 L 15,11 L 9,11 Z M 9,14 L 15,14 L 15,16 L 9,16 Z" />
+                <TextBlock Text="Firmware &amp; Pico" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+            <Button x:Name="NavConsoleBtn" Classes="nav" Click="OnNavClick" Tag="6" IsVisible="False">
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <PathIcon Width="16" Height="16" Data="M 4,4 L 20,4 A 2,2 0 0 1 22,6 L 22,18 A 2,2 0 0 1 20,20 L 4,20 A 2,2 0 0 1 2,18 L 2,6 A 2,2 0 0 1 4,4 Z M 6,9 L 10,12 L 6,15 M 12,15 L 18,15" />
-                <TextBlock Text="Console &amp; Updates" VerticalAlignment="Center" />
+                <TextBlock Text="Dev Console" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
           </StackPanel>
@@ -112,21 +113,19 @@
                         Click="OnQuickTouchMouseClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
           <Button x:Name="QuickMicMuteBtn" Content="Mic: Unmuted"
                   Click="OnToggleMicMuteClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
-          <Button x:Name="QuickUpdateBtn" Content="Update Pico Firmware" Click="OnUpdateFirmwareClick"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Classes="success" />
         </StackPanel>
       </DockPanel>
     </Border>
 
     <!-- ==================== MAIN CONTENT WORKSPACE ==================== -->
     <Grid Grid.Column="1" Margin="22,18">
-      <!-- PAGE 0: DASHBOARD -->
+      <!-- PAGE 0: DASHBOARD (Clean Player View) -->
       <ScrollViewer x:Name="Page0" IsVisible="True">
         <StackPanel Spacing="14">
           <Grid ColumnDefinitions="*,Auto">
             <StackPanel Spacing="2">
               <TextBlock Classes="title" Text="Overview &amp; USB Identity" />
-              <TextBlock Classes="dim" Text="Automatic USB hotplug bridge, DualSense / Xbox 360 live hardware visualizer, mouse mapping &amp; Impulse Triggers." />
+              <TextBlock Classes="dim" Text="DualSense / Xbox 360 mode switcher, mouse mapping, stick deadzone &amp; Impulse Triggers." />
             </StackPanel>
             <Border Grid.Column="1" Classes="pill" VerticalAlignment="Center" Padding="12,6">
               <TextBlock x:Name="HeroModePill" Text="Mode: DualSense" FontSize="12" FontWeight="SemiBold"
@@ -156,10 +155,7 @@
                   <TextBlock Grid.Row="1" Text="Haptic R:" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
                   <ProgressBar x:Name="DashHapticRBar" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Height="8" />
                 </Grid>
-                <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
-                  <TextBlock x:Name="FlashSyncBadgeTxt" Classes="dim" Text="Pico Flash: Standalone Ready" VerticalAlignment="Center" />
-                  <Button Grid.Column="1" Content="Save to Pico Flash" Click="OnSaveFlashClick" FontSize="11" Padding="10,5" />
-                </Grid>
+                <TextBlock Classes="dim" Text="Changes auto-save into your Pico 2 W so it runs standalone even after closing this app." TextWrapping="Wrap" />
               </StackPanel>
             </Grid>
           </Border>
@@ -198,7 +194,7 @@
               </StackPanel>
             </Border>
 
-            <!-- USB Mode + Impulse Triggers + Standalone Behavior Card -->
+            <!-- USB Mode + Impulse Triggers + Preferences Card -->
             <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
               <StackPanel Spacing="9">
                 <TextBlock Classes="hdr" Text="USB Personality &amp; Impulse Triggers" />
@@ -222,7 +218,7 @@
                 </StackPanel>
                 <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
                 <WrapPanel Orientation="Horizontal">
-                  <CheckBox x:Name="MinToTrayChk" Content="Minimize to System Tray on Close" IsChecked="True"
+                  <CheckBox x:Name="MinToTrayChk" Content="Minimize to System Tray" IsChecked="True"
                             IsCheckedChanged="OnAppBehaviorChanged" Margin="0,0,12,0" />
                   <CheckBox x:Name="StartWithWinChk" Content="Launch at Windows Startup"
                             IsCheckedChanged="OnAppBehaviorChanged" />
@@ -230,15 +226,6 @@
               </StackPanel>
             </Border>
           </Grid>
-
-          <!-- Pico Standalone Physical BOOTSEL Button Cheat-Sheet -->
-          <Border Classes="card" Padding="14,11">
-            <StackPanel Spacing="4">
-              <TextBlock Classes="hdr" Text="Pico Standalone Controls (Works Without Companion App)" FontSize="13" />
-              <TextBlock Classes="dim" TextWrapping="Wrap"
-                         Text="Settings auto-save to Pico flash (no app required after setup). Physical BOOTSEL button:  1× Press = Connect / Disconnect Controller   •   2× Press = Switch DualSense ↔ Xbox 360   •   3× Press = Pair New Controller (Share+PS)   •   4× Press = Reset All Bonds   •   Hold 2s = USB Firmware Flash Mode." />
-            </StackPanel>
-          </Border>
         </StackPanel>
       </ScrollViewer>
 
@@ -412,7 +399,6 @@
             <TextBlock Classes="dim" Text="Pick a desktop color theme, customize the DualSense touchpad lightbar glow, and bind the controller Mic Mute button." />
           </StackPanel>
 
-          <!-- Color Theme Selection Card -->
           <Border Classes="card">
             <StackPanel Spacing="10">
               <TextBlock Classes="hdr" Text="Desktop Color Scheme" />
@@ -470,28 +456,132 @@
         </StackPanel>
       </ScrollViewer>
 
-      <!-- PAGE 5: CONSOLE & UPDATES -->
-      <Grid x:Name="Page5" RowDefinitions="Auto,*,Auto" IsVisible="False">
+      <!-- PAGE 5: FIRMWARE & PICO SETUP -->
+      <ScrollViewer x:Name="Page5" IsVisible="False">
+        <StackPanel Spacing="14">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="title" Text="Firmware &amp; Pico Setup" />
+              <TextBlock Classes="dim" Text="Offline bundled Pico 2 W firmware installer, flash nuke tool, controller pairing &amp; standalone controls." />
+            </StackPanel>
+            <Border Grid.Column="1" Classes="pill" VerticalAlignment="Center" Padding="12,6">
+              <TextBlock x:Name="FwBundledBadgeTxt" Text="Bundled FW: v0.2.0" FontSize="12" FontWeight="SemiBold"
+                         Foreground="{DynamicResource NavActiveFgBrush}" />
+            </Border>
+          </Grid>
+
+          <!-- Card 1: Smart Pico Detection + Bundled Install / Nuke -->
+          <Border Classes="card">
+            <StackPanel Spacing="11">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="3">
+                  <TextBlock Classes="hdr" Text="Raspberry Pi Pico 2 W Firmware Manager" />
+                  <TextBlock x:Name="PicoProbeSummaryTxt" Text="Detecting Pico hardware..." FontSize="13"
+                             Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+                <Border Grid.Column="1" Classes="pill" VerticalAlignment="Top" Padding="10,5">
+                  <TextBlock x:Name="PicoProbeStatePill" Text="Scanning..." FontSize="11" FontWeight="SemiBold"
+                             Foreground="{DynamicResource TextPrimaryBrush}" />
+                </Border>
+              </Grid>
+
+              <WrapPanel Orientation="Horizontal">
+                <Button x:Name="BtnInstallBundledFw" Content="Install / Update Bundled Firmware"
+                        Click="OnInstallBundledFirmwareClick" Classes="success" Margin="0,0,8,6" />
+                <Button x:Name="BtnNukePico" Content="Nuke Pico Flash (Factory Reset)"
+                        Click="OnNukePromptClick" Classes="danger" Margin="0,0,8,6" />
+                <Button x:Name="BtnCancelFwOp" Content="Cancel Wait" Click="OnCancelFwOpClick"
+                        IsVisible="False" Margin="0,0,8,6" />
+              </WrapPanel>
+
+              <!-- 2-Step Safety Confirmation for Flash Nuke -->
+              <Border x:Name="NukeConfirmBox" Classes="subcard" IsVisible="False" BorderBrush="#EF4444" BorderThickness="1.2">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="Erase ALL flash memory on Pico 2 W?" FontWeight="Bold" FontSize="13" Foreground="#FCA5A5" />
+                  <TextBlock Classes="dim" TextWrapping="Wrap"
+                             Text="This permanently erases SensaBridge firmware, standalone flash settings, and all Bluetooth bonds, leaving the Pico in blank RP2350 BOOTSEL USB drive mode." />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Yes, Wipe Pico Flash Now" Click="OnConfirmNukeClick" Classes="danger" />
+                    <Button Content="Cancel" Click="OnCancelNukeClick" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="subcard" Padding="11,8">
+                <TextBlock x:Name="FwActionStatusTxt" Classes="dim"
+                           Text="Ready. Plug a blank Pico (while holding BOOTSEL) or an active SensaBridge Pico into USB." TextWrapping="Wrap" />
+              </Border>
+            </StackPanel>
+          </Border>
+
+          <!-- Card 2: Guided Controller Pairing & Bond Management -->
+          <Border x:Name="PairingGuideCard" Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="hdr" Text="Controller Bluetooth Pairing Wizard" />
+                <Border Grid.Column="1" Classes="pill" Padding="10,4">
+                  <TextBlock x:Name="PairingLiveStateTxt" Text="Waiting for Pico..." FontSize="11" FontWeight="SemiBold"
+                             Foreground="{DynamicResource TextSecondaryBrush}" />
+                </Border>
+              </Grid>
+              <Border Classes="subcard" Padding="12,10">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="How to pair your Cosmic Byte Sensa after flashing:" FontWeight="SemiBold" FontSize="13" />
+                  <TextBlock Classes="dim" TextWrapping="Wrap"
+                             Text="1. Make sure Pico 2 W is plugged in (SensaBridge firmware active).&#10;2. Hold Share (Create) + PS button on your Sensa for ~3 seconds until the lightbar double-blinks.&#10;3. Click 'Start Pairing Scan' below (or press Pico BOOTSEL 3×) — Pico connects &amp; remembers your controller permanently." />
+                </StackPanel>
+              </Border>
+              <WrapPanel Orientation="Horizontal">
+                <Button Content="Start Pairing Scan (45s)" Click="OnPairNewClick" Classes="accent" Margin="0,0,8,6" />
+                <Button Content="Reset All Paired Bonds" Click="OnForgetBondClick" Classes="danger" Margin="0,0,0,6" />
+              </WrapPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- Card 3: Standalone Flash Storage & Physical BOOTSEL Reference -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="hdr" Text="Standalone Pico Memory &amp; Physical Button Controls" />
+                  <TextBlock x:Name="FlashSyncBadgeTxt" Classes="dim" Text="Pico Flash: Ready (auto-saves settings to Pico)" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="Save Profile to Pico Flash" Click="OnSaveFlashClick" VerticalAlignment="Center" />
+              </Grid>
+              <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
+              <WrapPanel Orientation="Horizontal">
+                <Border Classes="pill" Margin="0,0,6,6"><TextBlock Text="1× BOOTSEL: Connect / Disconnect Controller" FontSize="11" /></Border>
+                <Border Classes="pill" Margin="0,0,6,6"><TextBlock Text="2× BOOTSEL: Switch DualSense ↔ Xbox 360" FontSize="11" /></Border>
+                <Border Classes="pill" Margin="0,0,6,6"><TextBlock Text="3× BOOTSEL: Pair New Controller" FontSize="11" /></Border>
+                <Border Classes="pill" Margin="0,0,6,6"><TextBlock Text="4× BOOTSEL: Reset All Bonds" FontSize="11" /></Border>
+                <Border Classes="pill" Margin="0,0,0,6"><TextBlock Text="Hold 2s BOOTSEL: Firmware Flash Mode" FontSize="11" /></Border>
+              </WrapPanel>
+              <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
+              <CheckBox x:Name="DeveloperModeChk" Content="Enable Developer Console &amp; Diagnostics (Ctrl+Shift+D)"
+                        IsCheckedChanged="OnDeveloperModeChanged" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- PAGE 6: DEVELOPER CONSOLE (Hidden unless Developer Mode enabled) -->
+      <Grid x:Name="Page6" RowDefinitions="Auto,*,Auto" IsVisible="False">
         <StackPanel Spacing="12" Margin="0,0,0,10">
           <StackPanel Spacing="2">
-            <TextBlock Classes="title" Text="Console &amp; Updates" />
-            <TextBlock Classes="dim" Text="Diagnostics, live Pico CLI console, and 1-click GitHub firmware/app updater." />
+            <TextBlock Classes="title" Text="Developer Console &amp; Online Updates" />
+            <TextBlock Classes="dim" Text="Raw Pico CLI stream, diagnostics, and optional GitHub self-updater." />
           </StackPanel>
           <Border Classes="card">
             <StackPanel Spacing="8">
               <WrapPanel Orientation="Horizontal">
                 <Button Content="Status" Click="OnCmdStatusClick" Margin="0,0,8,6" />
                 <Button Content="Debug Dump" Click="OnCmdDbgClick" Margin="0,0,8,6" />
-                <Button Content="Unlock 0x31 (1)" Click="OnUnlock1Click" Margin="0,0,8,6" />
-                <Button Content="Unlock 0x31 (2)" Click="OnUnlock2Click" Margin="0,0,8,6" />
-                <Button Content="Unlock 0x31 (3)" Click="OnUnlock3Click" Margin="0,0,8,6" />
-                <Button Content="Unlock 0x31 (4)" Click="OnUnlock4Click" Margin="0,0,8,6" />
                 <ToggleButton x:Name="BtMonToggle" Content="Input Diff Monitor" Click="OnBtMonToggleClick" Margin="0,0,8,6" />
+                <Button Content="Refresh Pico Config" Click="OnCmdGetCfgClick" Margin="0,0,0,6" />
               </WrapPanel>
               <WrapPanel Orientation="Horizontal">
                 <TextBox x:Name="TokenBox" Width="300" Watermark="Optional GitHub Token (Private Repo Updates)" PasswordChar="•" Margin="0,0,8,6" />
                 <Button Content="Save Token" Click="OnSaveTokenClick" Margin="0,0,8,6" />
-                <Button Content="Update Pico Firmware (.uf2)" Click="OnUpdateFirmwareClick" Classes="success" Margin="0,0,8,6" />
                 <Button Content="Update Desktop App (.exe)" Click="OnUpdateAppClick" Classes="accent" Margin="0,0,0,6" />
               </WrapPanel>
               <TextBlock x:Name="UpdaterStatusTxt" Classes="dim" Text="Repo: Yamerooo-hd/SensaDS5Control" />
@@ -504,7 +594,7 @@
                  BorderBrush="{DynamicResource BorderSubtleBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
 
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
-          <TextBox x:Name="CliInputBox" Watermark="Send raw command to Pico (e.g. status, reconnect, imptrig 2 85)..." KeyDown="OnCliKeyDown" Margin="0,0,8,0" />
+          <TextBox x:Name="CliInputBox" Watermark="Send raw command to Pico (e.g. status, deadzone 4, save)..." KeyDown="OnCliKeyDown" Margin="0,0,8,0" />
           <Button Grid.Column="1" Content="Send" Click="OnSendCliClick" Classes="accent" />
         </Grid>
       </Grid>

@@ -23,8 +23,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _hotplugTimer;
 
     private TrayIcon? _trayIcon;
+    private CancellationTokenSource? _fwActionCts;
     private bool _startMinimized;
     private bool _reallyClosing;
+    private bool _flashingBusy;
 
     private volatile bool _logDirty;
     private int _uiTelemetryPending;
@@ -37,6 +39,7 @@ public partial class MainWindow : Window
     private DateTime _ignoreBtReadyUntilUtc = DateTime.MinValue;
     private int _activeNavIndex;
     private byte _lastUsbMode;
+    private string _picoFwVersion = "";
 
     private static readonly IBrush DotGreen = new SolidColorBrush(Color.Parse("#22C55E"));
     private static readonly IBrush DotAmber = new SolidColorBrush(Color.Parse("#F59E0B"));
@@ -53,6 +56,8 @@ public partial class MainWindow : Window
         ApplySettingsToUi();
         _loadingUi = false;
 
+        FwBundledBadgeTxt.Text = $"Bundled FW: v{BundledFirmware.Version}";
+
         InitializeTrayIcon();
         Opened += (_, _) =>
         {
@@ -67,7 +72,7 @@ public partial class MainWindow : Window
         _logFlushTimer.Tick += (_, _) => FlushConsoleLogIfDirty();
         _logFlushTimer.Start();
 
-        _hotplugTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _hotplugTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _hotplugTimer.Tick += (_, _) => _ = PollPicoUsbHotplugAsync();
         _hotplugTimer.Start();
 
@@ -132,6 +137,39 @@ public partial class MainWindow : Window
         });
     }
 
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.D &&
+            e.KeyModifiers.HasFlag(KeyModifiers.Control) &&
+            e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            SetDeveloperMode(!_settings.DeveloperMode);
+            e.Handled = true;
+        }
+    }
+
+    private void OnDeveloperModeChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_loadingUi) return;
+        SetDeveloperMode(DeveloperModeChk.IsChecked == true);
+    }
+
+    private void SetDeveloperMode(bool enabled)
+    {
+        _settings.DeveloperMode = enabled;
+        _settings.Save();
+
+        _loadingUi = true;
+        DeveloperModeChk.IsChecked = enabled;
+        _loadingUi = false;
+
+        NavConsoleBtn.IsVisible = enabled;
+        if (!enabled && _activeNavIndex == 6)
+        {
+            SelectNavPage(0);
+        }
+    }
+
     private void OnNavClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is string tagStr && int.TryParse(tagStr, out int idx))
@@ -141,8 +179,8 @@ public partial class MainWindow : Window
     private void SelectNavPage(int idx)
     {
         _activeNavIndex = idx;
-        Control[] pages = [Page0, Page1, Page2, Page3, Page4, Page5];
-        Button[] navBtns = [NavDashBtn, NavTesterBtn, NavHapticsBtn, NavTriggersBtn, NavLightingBtn, NavConsoleBtn];
+        Control[] pages = [Page0, Page1, Page2, Page3, Page4, Page5, Page6];
+        Button[] navBtns = [NavDashBtn, NavTesterBtn, NavHapticsBtn, NavTriggersBtn, NavLightingBtn, NavFirmwareBtn, NavConsoleBtn];
         for (int i = 0; i < pages.Length; i++)
         {
             pages[i].IsVisible = i == idx;
@@ -229,6 +267,9 @@ public partial class MainWindow : Window
         _settings.StartWithWindows = autostartNow;
         StartWithWinChk.IsChecked = autostartNow;
 
+        DeveloperModeChk.IsChecked = _settings.DeveloperMode;
+        NavConsoleBtn.IsVisible = _settings.DeveloperMode;
+
         TokenBox.Text = _settings.GitHubToken;
 
         _mouse.TouchpadMouseEnabled = _settings.TouchpadMouse;
@@ -279,14 +320,15 @@ public partial class MainWindow : Window
 
     private async Task PollPicoUsbHotplugAsync()
     {
-        if (_switchingUsbMode || Interlocked.CompareExchange(ref _hotplugBusy, 1, 0) != 0)
+        if (_switchingUsbMode || _flashingBusy || Interlocked.CompareExchange(ref _hotplugBusy, 1, 0) != 0)
             return;
 
         try
         {
-            var ports = await Task.Run(() => _platform.DiscoverPicoComPorts());
-            var activePort = ports.FirstOrDefault();
-            if (activePort == null)
+            var probe = await Task.Run(() => _platform.ProbePicoHardware());
+            UpdatePicoProbeCard(probe);
+
+            if (probe.State != PicoHardwareState.SensaBridgeActive || probe.ComPort == null)
             {
                 if (_pico.IsConnected || _pico.ActivePortName != null)
                     _pico.NotifyUsbRemoved();
@@ -295,12 +337,15 @@ public partial class MainWindow : Window
 
             if (_pico.IsConnected)
             {
-                if (_pico.ActivePortName != null && !ports.Contains(_pico.ActivePortName, StringComparer.OrdinalIgnoreCase))
+                if (_pico.ActivePortName != null &&
+                    !string.Equals(_pico.ActivePortName, probe.ComPort, StringComparison.OrdinalIgnoreCase))
+                {
                     _pico.NotifyUsbRemoved();
+                }
                 return;
             }
 
-            await _pico.ConnectAsync(activePort, wakeController: false);
+            await _pico.ConnectAsync(probe.ComPort, wakeController: false);
         }
         catch { }
         finally
@@ -309,9 +354,132 @@ public partial class MainWindow : Window
         }
     }
 
+    private void UpdatePicoProbeCard(PicoHardwareProbe probe)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            switch (probe.State)
+            {
+                case PicoHardwareState.BootselDriveReady:
+                    PicoProbeStatePill.Text = "BOOTSEL Ready";
+                    PicoProbeSummaryTxt.Text = $"Pico 2 W USB drive detected at {probe.BootselDrivePath} — click 'Install / Update Bundled Firmware' (or Nuke Flash) right now.";
+                    break;
+                case PicoHardwareState.GenericPicoCom:
+                    PicoProbeStatePill.Text = $"Pico ({probe.ComPort})";
+                    PicoProbeSummaryTxt.Text = $"Standard Raspberry Pi Pico USB serial found on {probe.ComPort} (not running SensaBridge yet). Click 'Install / Update Bundled Firmware' to flash it.";
+                    break;
+                case PicoHardwareState.SensaBridgeActive:
+                    string ver = string.IsNullOrEmpty(_picoFwVersion) ? "" : $" v{_picoFwVersion}";
+                    PicoProbeStatePill.Text = $"SensaBridge{ver}";
+                    PicoProbeSummaryTxt.Text = $"SensaBridge Pico active on {probe.ComPort}. Ready for controller pairing, flash settings, 1-click update, or flash wipe.";
+                    break;
+                default:
+                    PicoProbeStatePill.Text = "Not Found";
+                    PicoProbeSummaryTxt.Text = "No Pico 2 W detected. Plug a configured Pico into USB, or hold the white BOOTSEL button while plugging in a fresh Pico.";
+                    break;
+            }
+        });
+    }
+
+    private async void OnInstallBundledFirmwareClick(object? sender, RoutedEventArgs e)
+    {
+        var uf2 = BundledFirmware.LoadBridgeUf2();
+        if (uf2 == null || uf2.Length < 4096)
+        {
+            FwActionStatusTxt.Text = "Bundled SensaBridge.uf2 is missing in this dev build (run via CI Release build, or place SensaBridge.uf2 in BundledFirmware/).";
+            return;
+        }
+
+        await RunFirmwareFlashOperationAsync(
+            uf2,
+            "SensaBridge.uf2",
+            isNuke: false,
+            successMessage: $"SensaBridge v{BundledFirmware.Version} installed! Now hold Share + PS on your Sensa for 3s to pair.");
+    }
+
+    private void OnNukePromptClick(object? sender, RoutedEventArgs e)
+    {
+        NukeConfirmBox.IsVisible = true;
+    }
+
+    private void OnCancelNukeClick(object? sender, RoutedEventArgs e)
+    {
+        NukeConfirmBox.IsVisible = false;
+    }
+
+    private async void OnConfirmNukeClick(object? sender, RoutedEventArgs e)
+    {
+        NukeConfirmBox.IsVisible = false;
+        var nukeUf2 = BundledFirmware.LoadNukeUf2();
+        if (nukeUf2 == null || nukeUf2.Length < 1024)
+        {
+            FwActionStatusTxt.Text = "Bundled flash_nuke.uf2 is missing in this dev build.";
+            return;
+        }
+
+        await RunFirmwareFlashOperationAsync(
+            nukeUf2,
+            "flash_nuke.uf2",
+            isNuke: true,
+            successMessage: "Pico flash wiped clean! Your Pico 2 W has rebooted into blank RP2350 BOOTSEL drive mode.");
+    }
+
+    private void OnCancelFwOpClick(object? sender, RoutedEventArgs e)
+    {
+        _fwActionCts?.Cancel();
+    }
+
+    private async Task RunFirmwareFlashOperationAsync(byte[] uf2Bytes, string fileName, bool isNuke, string successMessage)
+    {
+        if (_flashingBusy) return;
+        _flashingBusy = true;
+        NukeConfirmBox.IsVisible = false;
+        BtnInstallBundledFw.IsEnabled = false;
+        BtnNukePico.IsEnabled = false;
+        BtnCancelFwOp.IsVisible = true;
+        _fwActionCts = new CancellationTokenSource();
+
+        try
+        {
+            var progress = new Progress<string>(msg => FwActionStatusTxt.Text = msg);
+            Action? sendBootsel = _pico.IsConnected ? (() => _pico.EnterBootsel()) : null;
+
+            string result = await _platform.FlashUf2ToPicoAsync(
+                uf2Bytes, fileName, sendBootsel, progress, _fwActionCts.Token);
+
+            _pico.Disconnect("Pico rebooting...", disconnectController: false);
+            FwActionStatusTxt.Text = $"{result} {successMessage}";
+            SubStatusText.Text = successMessage;
+
+            if (!isNuke)
+            {
+                PairingLiveStateTxt.Text = "Hold Share + PS on Sensa...";
+                await Task.Delay(1800, _fwActionCts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            FwActionStatusTxt.Text = "Firmware operation canceled.";
+        }
+        catch (Exception ex)
+        {
+            FwActionStatusTxt.Text = $"Operation failed: {ex.Message}";
+        }
+        finally
+        {
+            _flashingBusy = false;
+            BtnInstallBundledFw.IsEnabled = true;
+            BtnNukePico.IsEnabled = true;
+            BtnCancelFwOp.IsVisible = false;
+            _fwActionCts?.Dispose();
+            _fwActionCts = null;
+            _ = PollPicoUsbHotplugAsync();
+        }
+    }
+
     private async void OnConnectClick(object? sender, RoutedEventArgs e)
     {
-        if (_switchingUsbMode) return;
+        if (_switchingUsbMode || _flashingBusy) return;
 
         if (_pico.IsConnected)
         {
@@ -347,27 +515,37 @@ public partial class MainWindow : Window
         else
         {
             StatusText.Text = "Pico USB Not Found";
-            SubStatusText.Text = "Plug Pico 2 W into USB (auto-connects immediately)";
+            SubStatusText.Text = "Plug Pico 2 W into USB (or use Firmware & Pico tab)";
             StatusDot.Fill = DotGray;
         }
     }
 
     private void OnPairNewClick(object? sender, RoutedEventArgs e)
     {
-        if (!_pico.IsConnected) return;
+        if (!_pico.IsConnected)
+        {
+            FwActionStatusTxt.Text = "Connect a SensaBridge-flashed Pico first before pairing.";
+            return;
+        }
         _pico.StartPairing();
         StatusDot.Fill = DotAmber;
         StatusText.Text = "Pairing Mode Active";
         SubStatusText.Text = "Hold Share + PS on Sensa controller for 3 seconds...";
+        PairingLiveStateTxt.Text = "Scanning (45s)... Hold Share + PS";
     }
 
     private void OnForgetBondClick(object? sender, RoutedEventArgs e)
     {
-        if (!_pico.IsConnected) return;
+        if (!_pico.IsConnected)
+        {
+            FwActionStatusTxt.Text = "Connect a SensaBridge-flashed Pico first.";
+            return;
+        }
         _pico.ForgetAllBonds();
         StatusDot.Fill = DotAmber;
         StatusText.Text = "Cleared Bonds — Pairing...";
         SubStatusText.Text = "Hold Share + PS on Sensa controller to re-pair...";
+        PairingLiveStateTxt.Text = "Bonds cleared — Hold Share + PS";
     }
 
     private void OnSaveFlashClick(object? sender, RoutedEventArgs e)
@@ -405,11 +583,13 @@ public partial class MainWindow : Window
                 SubStatusText.Text = "Syncing standalone Pico Flash profile...";
                 PortBadgeTxt.Text = $"Port: {portOrError}";
                 FlashSyncBadgeTxt.Text = "Pico Flash: Syncing...";
+                PairingLiveStateTxt.Text = "Waiting for controller...";
             }
             else
             {
                 _mouse.ReleaseAllButtons(_platform);
                 _wasBtControllerReady = false;
+                _picoFwVersion = "";
                 SetConnectButton(isConnectedController: false, connectedToPico: false);
                 StatusDot.Fill = DotGray;
                 StatusText.Text = _switchingUsbMode ? "Rebooting Pico USB..." : "Disconnected";
@@ -420,6 +600,7 @@ public partial class MainWindow : Window
                 DashBatteryInfo.Text = "Battery: --";
                 DashReportMode.Text = "Input Mode: --";
                 FlashSyncBadgeTxt.Text = "Pico Flash: Offline (standalone active on Pico)";
+                PairingLiveStateTxt.Text = "Pico Offline";
                 ResetTelemetryMeters();
                 DashControllerDiagram.ResetDisconnected();
                 TesterControllerDiagram.ResetDisconnected();
@@ -431,6 +612,7 @@ public partial class MainWindow : Window
     {
         Dispatcher.UIThread.Post(() =>
         {
+            _picoFwVersion = cfg.FirmwareVersion;
             if (cfg.IsFreshFlash)
             {
                 PushSavedProfileToPico();
@@ -468,7 +650,7 @@ public partial class MainWindow : Window
                 _settings.MicLedMode = (byte)Math.Clamp((int)cfg.MicLedMode, 0, 2);
                 _settings.Save();
                 UpdateUsbIdentityIndicators(cfg.UsbMode);
-                FlashSyncBadgeTxt.Text = "Pico Flash: Loaded Standalone Profile";
+                FlashSyncBadgeTxt.Text = $"Pico Flash: Loaded Standalone (v{cfg.FirmwareVersion})";
             }
             finally
             {
@@ -563,6 +745,7 @@ public partial class MainWindow : Window
             PortBadgeTxt.Text = $"{_pico.ActivePortName ?? "USB"} • {usbShort}";
             string chgTag = s.ChargingState != 0 ? " ⚡" : "";
             BatteryBadgeTxt.Text = btNow ? (s.FullMode0x31 ? $"Bat: {s.BatteryPct}%{chgTag}" : "Short 0x01") : "BT Idle";
+            PairingLiveStateTxt.Text = btNow ? "✓ Sensa Paired & Connected" : "Ready — Hold Share + PS or press PS";
 
             DashBridgeInfo.Text = $"Bridge: Mode {s.Mode} | 0x36 tx={s.Tx0x36} | Gain {s.HapticGainPct}% | {usbShort}";
             DashBatteryInfo.Text = btNow
@@ -891,7 +1074,7 @@ public partial class MainWindow : Window
 
     private async Task SwitchUsbIdentityAsync(string cliMode, string label, byte targetModeId)
     {
-        if (_switchingUsbMode) return;
+        if (_switchingUsbMode || _flashingBusy) return;
         if (!_pico.IsConnected)
         {
             UsbModeStatus.Text = "Waiting for Pico USB connection first.";
@@ -975,10 +1158,7 @@ public partial class MainWindow : Window
 
     private void OnCmdStatusClick(object? s, RoutedEventArgs e) => _pico.SendCommand("status");
     private void OnCmdDbgClick(object? s, RoutedEventArgs e) => _pico.SendCommand("dbg");
-    private void OnUnlock1Click(object? s, RoutedEventArgs e) => _pico.SendUnlock(1);
-    private void OnUnlock2Click(object? s, RoutedEventArgs e) => _pico.SendUnlock(2);
-    private void OnUnlock3Click(object? s, RoutedEventArgs e) => _pico.SendUnlock(3);
-    private void OnUnlock4Click(object? s, RoutedEventArgs e) => _pico.SendUnlock(4);
+    private void OnCmdGetCfgClick(object? s, RoutedEventArgs e) => _pico.RequestConfig();
     private void OnBtMonToggleClick(object? s, RoutedEventArgs e) => _pico.SetBtMon(BtMonToggle.IsChecked == true);
 
     private void OnSaveTokenClick(object? s, RoutedEventArgs e)
@@ -986,32 +1166,6 @@ public partial class MainWindow : Window
         _settings.GitHubToken = TokenBox.Text ?? "";
         _settings.Save();
         UpdaterStatusTxt.Text = "GitHub token saved.";
-    }
-
-    private async void OnUpdateFirmwareClick(object? sender, RoutedEventArgs e)
-    {
-        UpdaterStatusTxt.Text = "Downloading latest SensaBridge.uf2 from GitHub...";
-        try
-        {
-            var uf2 = await GitHubUpdater.DownloadLatestFirmwareBytesAsync(_settings.GitHubToken, CancellationToken.None);
-            if (uf2 == null || uf2.Length < 4096)
-            {
-                const string errMsg = "No .uf2 found (if repo is Private, paste your GitHub token in Console & Updates).";
-                UpdaterStatusTxt.Text = errMsg;
-                SubStatusText.Text = errMsg;
-                return;
-            }
-            UpdaterStatusTxt.Text = "Rebooting Pico into BOOTSEL and flashing...";
-            SubStatusText.Text = UpdaterStatusTxt.Text;
-            var msg = await _platform.FlashUf2ToPicoAsync(uf2, () => _pico.EnterBootsel(), CancellationToken.None);
-            UpdaterStatusTxt.Text = msg;
-            SubStatusText.Text = msg;
-        }
-        catch (Exception ex)
-        {
-            UpdaterStatusTxt.Text = $"Update failed: {ex.Message}";
-            SubStatusText.Text = UpdaterStatusTxt.Text;
-        }
     }
 
     private void OnSendCliClick(object? s, RoutedEventArgs e) => SendCliInput();
@@ -1047,6 +1201,7 @@ public partial class MainWindow : Window
             _trayIcon.IsVisible = false;
             _trayIcon.Dispose();
         }
+        _fwActionCts?.Cancel();
         _hotplugTimer.Stop();
         _logFlushTimer.Stop();
         _mouse.ReleaseAllButtons(_platform);

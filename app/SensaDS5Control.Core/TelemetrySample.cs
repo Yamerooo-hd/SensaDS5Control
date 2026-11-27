@@ -87,7 +87,8 @@ public sealed record PicoConfigSample(
     byte LedB,
     byte MicLedMode,
     bool LeftTriggerOverride,
-    bool RightTriggerOverride)
+    bool RightTriggerOverride,
+    string FirmwareVersion = "0.1.x")
 {
     public static bool TryParse(string line, out PicoConfigSample cfg)
     {
@@ -111,7 +112,8 @@ public sealed record PicoConfigSample(
                 LedB: byte.Parse(p[11]),
                 MicLedMode: byte.Parse(p[12]),
                 LeftTriggerOverride: p[13] == "1",
-                RightTriggerOverride: p[14] == "1");
+                RightTriggerOverride: p[14] == "1",
+                FirmwareVersion: p.Length > 15 && !string.IsNullOrWhiteSpace(p[15]) ? p[15].Trim() : "0.1.x");
             return true;
         }
         catch
