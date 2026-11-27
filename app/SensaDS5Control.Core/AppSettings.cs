@@ -20,6 +20,8 @@ public sealed class AppSettings
     public int ImpulseTriggerStrengthPct { get; set; } = 85;
     public int StickDeadzonePct { get; set; } = 4;
     public int UsbPollRateHz { get; set; } = 1000;
+    public int SpeakerVolumePct { get; set; } = 100;
+    public int SpeakerGain { get; set; } = 6;
 
     public bool MinimizeToTray { get; set; } = true;
     public bool StartWithWindows { get; set; } = false;
@@ -61,6 +63,8 @@ public sealed class AppSettings
                 s.ImpulseTriggerStrengthPct = Math.Clamp(s.ImpulseTriggerStrengthPct, 0, 100);
                 s.StickDeadzonePct = Math.Clamp(s.StickDeadzonePct, 0, 25);
                 if (s.UsbPollRateHz is not (250 or 500 or 1000)) s.UsbPollRateHz = 1000;
+                s.SpeakerVolumePct = Math.Clamp(s.SpeakerVolumePct, 0, 100);
+                s.SpeakerGain = Math.Clamp(s.SpeakerGain, 1, 7);
                 s.TouchpadSens = Math.Clamp(s.TouchpadSens, 0.3, 3.5);
                 s.GyroSens = Math.Clamp(s.GyroSens, 0.01, 0.15);
                 s.MicLedMode = (byte)Math.Clamp((int)s.MicLedMode, 0, 2);

@@ -16,7 +16,7 @@ namespace sensa {
 namespace {
 
 constexpr uint32_t kFlashMagic = 0x53454E32u; // "SEN2"
-constexpr uint16_t kFlashVersion = 2;
+constexpr uint16_t kFlashVersion = 3;
 constexpr uint32_t kSaveDebounceUs = 1200000u;
 
 // Reserve 6 sectors from end of flash:
@@ -59,6 +59,8 @@ struct __attribute__((packed)) PersistedConfig {
     uint8_t trig_l[11];
 
     uint16_t usb_poll_rate_hz;
+    uint8_t speaker_volume_pct;
+    uint8_t speaker_gain;
 
     uint32_t crc32;
 };
@@ -97,6 +99,8 @@ void populate_cfg_from_runtime(PersistedConfig &cfg, uint32_t seq) {
     cfg.haptic_gain_pct = g_dsp_config.haptic_gain_pct;
     cfg.impulse_mode = static_cast<uint8_t>(g_dsp_config.impulse_mode);
     cfg.impulse_strength_pct = g_dsp_config.impulse_strength_pct;
+    cfg.speaker_volume_pct = g_dsp_config.speaker_volume_pct;
+    cfg.speaker_gain = g_dsp_config.speaker_gain;
 
     bt_export_persisted_state(
         cfg.led_override, cfg.led_r, cfg.led_g, cfg.led_b, cfg.mic_led_mode,
@@ -166,6 +170,8 @@ bool config_load_from_flash(bool watchdog_usb_override) {
         g_dsp_config.impulse_mode = static_cast<ImpulseTriggerMode>(copy.impulse_mode);
     }
     g_dsp_config.impulse_strength_pct = clamp_u8(copy.impulse_strength_pct, 0, 100);
+    g_dsp_config.speaker_volume_pct = clamp_u8(copy.speaker_volume_pct, 0, 100);
+    g_dsp_config.speaker_gain = clamp_u8(copy.speaker_gain, 1, 7);
 
     bt_import_persisted_state(
         copy.led_override != 0, copy.led_r, copy.led_g, copy.led_b, copy.mic_led_mode,

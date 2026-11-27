@@ -19,6 +19,7 @@ void bt_notify_host_output();
 void bt_request_state_update();
 void bt_trigger_test_impulse(uint8_t pct, uint32_t duration_ms);
 void bt_submit_haptic_waveform(int8_t const block[64], HapticMode proto);
+void bt_submit_audio_block(int8_t const haptics[64], uint8_t const *opus_200, bool has_opus, HapticMode proto);
 void bt_set_override_led(uint8_t r, uint8_t g, uint8_t b);
 void bt_clear_override_led();
 void bt_set_mic_led(uint8_t mode);

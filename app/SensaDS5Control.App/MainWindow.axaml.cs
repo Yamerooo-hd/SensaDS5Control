@@ -240,6 +240,11 @@ public partial class MainWindow : Window
         HapticGainSlider.Value = _settings.HapticGainPct;
         HapticGainLabel.Text = $"{_settings.HapticGainPct}%";
 
+        SpeakerVolSlider.Value = _settings.SpeakerVolumePct;
+        SpeakerVolLabel.Text = $"{_settings.SpeakerVolumePct}%";
+        SpeakerGainSlider.Value = _settings.SpeakerGain;
+        SpeakerGainLabel.Text = $"{_settings.SpeakerGain} / 7";
+
         ImpulseModeCombo.SelectedIndex = Math.Clamp(_settings.ImpulseTriggerMode, 0, 2);
         ImpulseStrengthSlider.Value = Math.Clamp(_settings.ImpulseTriggerStrengthPct, 0, 100);
         ImpulseStrengthLabel.Text = $"{_settings.ImpulseTriggerStrengthPct}%";
@@ -672,6 +677,13 @@ public partial class MainWindow : Window
                 _settings.UsbPollRateHz = NormalizePollRate(cfg.UsbPollRateHz);
                 UpdatePollRateUi(_settings.UsbPollRateHz);
 
+                _settings.SpeakerVolumePct = Math.Clamp(cfg.SpeakerVolumePct, 0, 100);
+                SpeakerVolSlider.Value = _settings.SpeakerVolumePct;
+                SpeakerVolLabel.Text = $"{_settings.SpeakerVolumePct}%";
+                _settings.SpeakerGain = Math.Clamp(cfg.SpeakerGain, 1, 7);
+                SpeakerGainSlider.Value = _settings.SpeakerGain;
+                SpeakerGainLabel.Text = $"{_settings.SpeakerGain} / 7";
+
                 _settings.LedOverride = cfg.LedOverride;
                 _settings.LedR = cfg.LedR;
                 _settings.LedG = cfg.LedG;
@@ -710,6 +722,8 @@ public partial class MainWindow : Window
         _pico.SetImpulseTriggers(_settings.ImpulseTriggerMode, _settings.ImpulseTriggerStrengthPct);
         _pico.SetStickDeadzone(_settings.StickDeadzonePct);
         _pico.SetPollRate(_settings.UsbPollRateHz);
+        _pico.SetSpeakerVolume(_settings.SpeakerVolumePct);
+        _pico.SetSpeakerGain(_settings.SpeakerGain);
         _pico.SetMicLed(_settings.MicLedMode);
         if (_settings.LedOverride) _pico.SetLed(_settings.LedR, _settings.LedG, _settings.LedB);
         else _pico.SetLedAuto();
@@ -1029,6 +1043,30 @@ public partial class MainWindow : Window
         _pico.SetHapticGain(val);
         FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
+
+    private void OnSpeakerVolChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loadingUi) return;
+        int val = Math.Clamp((int)Math.Round(SpeakerVolSlider.Value), 0, 100);
+        SpeakerVolLabel.Text = $"{val}%";
+        _settings.SpeakerVolumePct = val;
+        _settings.Save();
+        _pico.SetSpeakerVolume(val);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
+    }
+
+    private void OnSpeakerGainChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loadingUi) return;
+        int val = Math.Clamp((int)Math.Round(SpeakerGainSlider.Value), 1, 7);
+        SpeakerGainLabel.Text = $"{val} / 7";
+        _settings.SpeakerGain = val;
+        _settings.Save();
+        _pico.SetSpeakerGain(val);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
+    }
+
+    private void OnTestSpeakerClick(object? s, RoutedEventArgs e) => _pico.TriggerTestSpeaker(900);
 
     private void OnTestCrispTapClick(object? s, RoutedEventArgs e) => _pico.TriggerTestWave("36", 125, 160, 300);
     private void OnTestHapticBuzzClick(object? s, RoutedEventArgs e) => _pico.TriggerTestWave("36", 120, 120, 900);

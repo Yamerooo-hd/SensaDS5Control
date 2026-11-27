@@ -104,6 +104,25 @@ target_include_directories(sensa-bridge PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+if(DEFINED PICO_OPUS_PATH AND EXISTS "${PICO_OPUS_PATH}/CMakeLists.txt")
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+    set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(OPUS_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
+    set(OPUS_FORTIFY_SOURCE OFF CACHE BOOL "" FORCE)
+    set(OPUS_VAR_ARRAYS OFF CACHE BOOL "" FORCE)
+    set(OPUS_USE_ALLOCA OFF CACHE BOOL "" FORCE)
+    set(OPUS_NONTHREADSAFE_PSEUDOSTACK ON CACHE BOOL "" FORCE)
+    add_subdirectory("${PICO_OPUS_PATH}" "${CMAKE_BINARY_DIR}/opus-build" EXCLUDE_FROM_ALL)
+    target_compile_options(opus PRIVATE -O2 -ffunction-sections -fdata-sections)
+    target_compile_definitions(sensa-bridge PRIVATE SENSA_HAS_OPUS=1)
+    set(SENSA_OPUS_LIB opus)
+else()
+    target_compile_definitions(sensa-bridge PRIVATE SENSA_HAS_OPUS=0)
+    set(SENSA_OPUS_LIB "")
+endif()
+
 target_link_libraries(sensa-bridge
     pico_stdlib
     hardware_flash
@@ -116,6 +135,7 @@ target_link_libraries(sensa-bridge
     pico_btstack_cyw43
     tinyusb_device
     tinyusb_board
+    ${SENSA_OPUS_LIB}
 )
 
 pico_add_extra_outputs(sensa-bridge)

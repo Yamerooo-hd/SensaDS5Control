@@ -239,6 +239,9 @@ public sealed class PicoBridgeClient : IDisposable
     public void TriggerImpulseTest(int pct = 85, int ms = 650) => SendCommand($"imptrigtest {Math.Clamp(pct, 10, 100)} {Math.Clamp(ms, 50, 3000)}");
     public void SetStickDeadzone(int pct) => SendCommand($"deadzone {Math.Clamp(pct, 0, 25)}");
     public void SetPollRate(int hz) => SendCommand($"pollrate {(hz <= 375 ? 250 : hz <= 750 ? 500 : 1000)}");
+    public void SetSpeakerVolume(int volPct) => SendCommand($"spkvol {Math.Clamp(volPct, 0, 100)}");
+    public void SetSpeakerGain(int gain1to7) => SendCommand($"spkgain {Math.Clamp(gain1to7, 1, 7)}");
+    public void TriggerTestSpeaker(int ms = 900) => SendCommand($"testspk {Math.Clamp(ms, 150, 4000)}");
     public void RequestConfig() => SendCommand("getcfg");
     public void SaveConfigToFlash() => SendCommand("save");
     public void StartPairing() => SendCommand("pair");

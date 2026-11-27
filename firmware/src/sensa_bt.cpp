@@ -68,6 +68,8 @@ uint32_t last_dynamic_check_us = 0;
 
 bool audio_block_pending = false;
 int8_t pending_audio_block[64]{};
+uint8_t pending_opus_block[200]{};
+bool opus_block_pending = false;
 HapticMode pending_audio_proto = HapticMode::Mode32SAxense;
 
 bool led_override_active = false;
@@ -128,6 +130,7 @@ uint32_t security_ready_us = 0;
 bool hid_local_fallback_pending = false;
 uint32_t hid_open_ctrl_done_us = 0;
 uint8_t unlock_boot_retries_left = 0;
+uint32_t next_unlock_retry_us = 0;
 
 // Spaced feature prefetch queue (avoids choking clone HID Control endpoint)
 constexpr uint8_t kPrefetchCap = 6;
@@ -392,9 +395,11 @@ void compute_dynamic_impulse_pct(uint8_t &out_l_pct, uint8_t &out_r_pct) {
 
 // Populate common 47-byte/63-byte DualSense output block shared by 0x31 and 0x90 subpacket in 0x36/0x39
 void fill_state_block(uint8_t p[63], bool allow_synth_motors, bool haptics_audio_mode) {
+    bool host_audio_route = false;
     if (g_host_output.valid && g_host_output.len > 0) {
         uint16_t n = std::min<uint16_t>(g_host_output.len, 47);
         std::memcpy(p, g_host_output.payload, n);
+        host_audio_route = (g_usb_mode == UsbMode::DualSense) && ((p[0] & 0x80u) != 0);
     }
 
     uint8_t game_r = g_host_output.valid ? p[2] : 0;
@@ -431,6 +436,19 @@ void fill_state_block(uint8_t p[63], bool allow_synth_motors, bool haptics_audio
         p[2] = 0;
         p[3] = 0;
     }
+
+    // Speaker & headphone audio routing + hardware preamp boost (DualSense Output offsets 4,5,7,37)
+    uint8_t spk_vol = static_cast<uint8_t>(
+        (static_cast<uint16_t>(std::min<uint8_t>(g_dsp_config.speaker_volume_pct, 100)) * 0x64u + 50u) / 100u);
+    uint8_t spk_gain = std::clamp<uint8_t>(g_dsp_config.speaker_gain, 1, 7);
+    p[0] |= 0x10u | 0x20u | 0x80u; // HeadphoneVolume | SpeakerVolume | AudioControl
+    p[1] |= 0x80u;                 // AudioControl2 (speaker preamp bits)
+    p[4] = 0x7Fu;                  // Max headphone gain headroom
+    p[5] = spk_vol;
+    if (!host_audio_route || dsp_is_speaker_test_active()) {
+        p[7] = 0x30u; // OutputPathSpeaker (built-in controller speaker active)
+    }
+    p[37] = static_cast<uint8_t>((p[37] & 0xF8u) | spk_gain);
 
     g_telemetry.last_sent_right = p[2];
     g_telemetry.last_sent_left = p[3];
@@ -515,7 +533,7 @@ void build_0x32_packet(uint8_t out_pkt[143], int8_t const haptics[64]) {
     write_bt_report_crc(r, 142);
 }
 
-void build_long_haptic_packet(uint8_t report_id, uint16_t payload_len, uint8_t *out_pkt, int8_t const haptics[64]) {
+void build_long_haptic_packet(uint8_t report_id, uint16_t payload_len, uint8_t *out_pkt, int8_t const haptics[64], uint8_t const *opus_200 = nullptr) {
     std::memset(out_pkt, 0, payload_len + 1u);
     out_pkt[0] = 0xA2;
     uint8_t *r = out_pkt + 1;
@@ -528,15 +546,20 @@ void build_long_haptic_packet(uint8_t report_id, uint16_t payload_len, uint8_t *
     fill_state_block(r + 13, false, true);
     r[76] = 0x92; r[77] = 64;
     std::memcpy(r + 78, haptics, 64);
+    if (opus_200 != nullptr && payload_len >= 344) {
+        r[142] = 0x93;
+        r[143] = 200;
+        std::memcpy(r + 144, opus_200, 200);
+    }
     write_bt_report_crc(r, payload_len);
 }
 
-void build_0x36_packet(uint8_t out_pkt[399], int8_t const haptics[64]) {
-    build_long_haptic_packet(0x36, 398, out_pkt, haptics);
+void build_0x36_packet(uint8_t out_pkt[399], int8_t const haptics[64], uint8_t const *opus_200 = nullptr) {
+    build_long_haptic_packet(0x36, 398, out_pkt, haptics, opus_200);
 }
 
-void build_0x39_packet(uint8_t out_pkt[548], int8_t const haptics[64]) {
-    build_long_haptic_packet(0x39, 547, out_pkt, haptics);
+void build_0x39_packet(uint8_t out_pkt[548], int8_t const haptics[64], uint8_t const *opus_200 = nullptr) {
+    build_long_haptic_packet(0x39, 547, out_pkt, haptics, opus_200);
 }
 
 void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
@@ -562,7 +585,8 @@ void on_hid_session_ready() {
     prefetch_idx = 0;
     for (uint8_t i = 0; i < 4; ++i) prefetch_ids[i] = kReqIds[i];
     prefetch_next_us = time_us_32() + 40000u;
-    unlock_boot_retries_left = 4;
+    unlock_boot_retries_left = 6;
+    next_unlock_retry_us = time_us_32() + 300000u;
     last_state_send_us = time_us_32();
     usb_set_bt_ready(true);
 }
@@ -587,11 +611,13 @@ void reset_session_state() {
     prefetch_idx = 0;
     prefetch_next_us = 0;
     unlock_boot_retries_left = 0;
+    next_unlock_retry_us = 0;
     last_mon_len = 0;
     std::memset(last_bt_body, 0, sizeof(last_bt_body));
     intr_can_send_req = false;
     ctrl_can_send_req = false;
     audio_block_pending = false;
+    opus_block_pending = false;
     state_send_pending = false;
     deferred_state_flush = false;
     impulse_test_active = false;
@@ -735,21 +761,30 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
             intr_can_send_req = false;
             if (audio_block_pending) {
                 audio_block_pending = false;
+                uint8_t const *opus_ptr = opus_block_pending ? pending_opus_block : nullptr;
+                bool send_opus = opus_block_pending;
+                opus_block_pending = false;
                 uint8_t buf[548];
                 uint16_t len = 0;
-                if (pending_audio_proto == HapticMode::Mode32SAxense ||
-                    pending_audio_proto == HapticMode::Mode31Hybrid32) {
+                if (send_opus) {
+                    build_0x36_packet(buf, pending_audio_block, opus_ptr);
+                    len = 399;
+                    g_telemetry.bt_0x36_tx_count++;
+                    state_send_pending = false; // 0x36 carries full 0x90 state
+                    last_state_send_us = time_us_32();
+                } else if (pending_audio_proto == HapticMode::Mode32SAxense ||
+                           pending_audio_proto == HapticMode::Mode31Hybrid32) {
                     build_0x32_packet(buf, pending_audio_block);
                     len = 143;
                     g_telemetry.bt_0x32_tx_count++;
                 } else if (pending_audio_proto == HapticMode::Mode36Haptics) {
-                    build_0x36_packet(buf, pending_audio_block);
+                    build_0x36_packet(buf, pending_audio_block, nullptr);
                     len = 399;
                     g_telemetry.bt_0x36_tx_count++;
                     state_send_pending = false; // 0x36 carries full 0x90 state
                     last_state_send_us = time_us_32();
                 } else if (pending_audio_proto == HapticMode::Mode39Probe) {
-                    build_0x39_packet(buf, pending_audio_block);
+                    build_0x39_packet(buf, pending_audio_block, nullptr);
                     len = 548;
                     g_telemetry.bt_0x39_tx_count++;
                     state_send_pending = false; // 0x39 carries full 0x90 state
@@ -792,10 +827,12 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
         case L2CAP_EVENT_INCOMING_CONNECTION: {
             uint16_t psm = l2cap_event_incoming_connection_get_psm(packet);
             uint16_t lcid = l2cap_event_incoming_connection_get_local_cid(packet);
-            if (!security_ready) {
-                console_printf("[BT] Decline incoming L2CAP psm=0x%04X before security\n", psm);
+            if (acl_handle == HCI_CON_HANDLE_INVALID) {
                 l2cap_decline_connection(lcid);
                 break;
+            }
+            if (!security_ready && gap_security_level(acl_handle) >= LEVEL_2) {
+                security_ready = true;
             }
             if (psm == kPsmHidControl && hid_ctrl_cid == 0 && hid_ctrl_pending == 0) {
                 hid_remote_initiated = true;
@@ -1088,7 +1125,7 @@ bool bt_init() {
     l2cap_register_service(&l2cap_packet_handler, kPsmHidControl, kMtuControl, LEVEL_2);
     l2cap_register_service(&l2cap_packet_handler, kPsmHidInterrupt, kMtuInterrupt, LEVEL_2);
     l2cap_init();
-    gap_set_link_supervision_timeout(2400); // 1.5s supervision timeout for crisp unplug disconnect
+    gap_set_link_supervision_timeout(6400); // 4.0s supervision timeout avoids cold-wake ACL drops
 
     gap_ssp_set_enable(true);
     gap_secure_connections_enable(true);
@@ -1210,12 +1247,22 @@ void bt_trigger_test_impulse(uint8_t pct, uint32_t duration_ms) {
     bt_request_state_update();
 }
 
-void bt_submit_haptic_waveform(int8_t const block[64], HapticMode proto) {
+void bt_submit_audio_block(int8_t const haptics[64], uint8_t const *opus_200, bool has_opus, HapticMode proto) {
     if (!hid_intr_ready) return;
-    std::memcpy(pending_audio_block, block, 64);
+    std::memcpy(pending_audio_block, haptics, 64);
+    if (has_opus && opus_200 != nullptr) {
+        std::memcpy(pending_opus_block, opus_200, 200);
+        opus_block_pending = true;
+    } else {
+        opus_block_pending = false;
+    }
     pending_audio_proto = proto;
     audio_block_pending = true;
     request_intr_tx();
+}
+
+void bt_submit_haptic_waveform(int8_t const block[64], HapticMode proto) {
+    bt_submit_audio_block(block, nullptr, false, proto);
 }
 
 void bt_set_override_led(uint8_t r, uint8_t g, uint8_t b) {
@@ -1377,13 +1424,9 @@ void bt_poll() {
     cyw43_arch_poll();
     uint32_t now_us = time_us_32();
 
-    // Auto-connect to bonded controller if it hasn't initiated ACL within 2.0s after boot
-    if (!boot_reconnect_tried && state_working_us != 0 &&
-        static_cast<uint32_t>(now_us - state_working_us) > 2000000u &&
-        has_bonded_addr && acl_handle == HCI_CON_HANDLE_INVALID && !pairing_window) {
-        boot_reconnect_tried = true;
-        initiate_bonded_connection("Auto-connecting bonded");
-    }
+    // Stay in fast 11.25ms interlaced page scan when bonded instead of racing PS-button wakes
+    // with an unprompted boot page timeout; manual reconnect remains via 1x BOOTSEL or UI button.
+    boot_reconnect_tried = true;
 
     // Fallback to local L2CAP open if controller didn't initiate HID channels in 650ms (or Interrupt in 1.2s)
     if (security_ready && (!hid_ctrl_ready || !hid_intr_ready)) {
@@ -1428,24 +1471,40 @@ void bt_poll() {
         prefetch_next_us = now_us + 45000u;
     }
 
-    // Pull next 64B DSP waveform block whenever ready (works even before rx0x31 unlocks)
+    // Retry Feature 0x05 + 0x31 unlock up to 6 times while controller hasn't entered full 0x31 mode yet
+    if (!rx_0x31_seen && unlock_boot_retries_left > 0 && prefetch_idx >= prefetch_count &&
+        static_cast<int32_t>(now_us - next_unlock_retry_us) >= 0) {
+        unlock_boot_retries_left--;
+        next_unlock_retry_us = now_us + 320000u;
+        if (hid_ctrl_ready) {
+            uint8_t req5[2] = {0x43, 0x05};
+            enqueue_ctrl(req5, 2);
+        }
+        state_send_pending = true;
+        request_intr_tx();
+    }
+
+    // Pull next 64B DSP haptics (+ optional 200B Opus speaker block) whenever ready
     static bool was_haptics_active = false;
     int8_t block[64];
+    uint8_t opus_buf[200];
+    bool has_opus = false;
     HapticMode wave_proto = g_haptic_mode;
-    if (dsp_take_haptic_block(block, wave_proto)) {
-        if (wave_proto == HapticMode::Mode32SAxense ||
+    if (dsp_take_audio_block(block, opus_buf, has_opus, wave_proto)) {
+        if (has_opus ||
+            wave_proto == HapticMode::Mode32SAxense ||
             wave_proto == HapticMode::Mode36Haptics ||
             wave_proto == HapticMode::Mode39Probe ||
             wave_proto == HapticMode::Mode31Hybrid32) {
-            bt_submit_haptic_waveform(block, wave_proto);
+            bt_submit_audio_block(block, opus_buf, has_opus, wave_proto);
         }
     }
 
-    // Re-sample clock after synchronous L2CAP callbacks inside bt_submit_haptic_waveform to prevent uint32 underflow
+    // Re-sample clock after synchronous L2CAP callbacks inside bt_submit_audio_block to prevent uint32 underflow
     now_us = time_us_32();
 
     // Flush one clean 0x31 state packet when 0x36/0x39 audio-haptics ends so LEDs/triggers/classic rumble never stay stale
-    bool haptics_now = dsp_is_haptics_active();
+    bool haptics_now = dsp_is_haptics_active() || dsp_is_speaker_active();
     if (was_haptics_active && !haptics_now) {
         bt_request_state_update();
     }
@@ -1489,7 +1548,7 @@ void bt_poll() {
         }
     }
 
-    // Periodic 0x31 update at ~100 Hz while rumble active (or hybrid trigger updates)
+    // Periodic 0x31 update at ~100 Hz while rumble active, plus 1 Hz idle keepalive across all modes
     uint32_t interval_us = (g_haptic_mode == HapticMode::Mode31Synth) ? 10000u : 50000u;
     if (static_cast<int32_t>(now_us - last_state_send_us) >= static_cast<int32_t>(interval_us)) {
         if (g_haptic_mode == HapticMode::Mode31Synth || g_haptic_mode == HapticMode::Mode31Hybrid32) {
@@ -1502,6 +1561,9 @@ void bt_poll() {
                 state_send_pending = true;
                 request_intr_tx();
             }
+        } else if (!haptics_now && static_cast<uint32_t>(now_us - last_state_send_us) >= 1000000u) {
+            state_send_pending = true;
+            request_intr_tx();
         }
     }
 

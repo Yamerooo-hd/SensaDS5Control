@@ -342,6 +342,28 @@
 
           <Border Classes="card">
             <StackPanel Spacing="10">
+              <TextBlock Classes="hdr" Text="Controller Speaker Audio &amp; Volume Boost (Opus 0x36)" />
+              <TextBlock Classes="dim" Text="Boosts the built-in controller speaker hardware preamp + PCM gain and plays a wireless test chime." TextWrapping="Wrap" />
+              <Grid ColumnDefinitions="120,*,55">
+                <TextBlock Text="Speaker Volume:" VerticalAlignment="Center" />
+                <Slider x:Name="SpeakerVolSlider" Grid.Column="1" Minimum="0" Maximum="100" Value="100"
+                        ValueChanged="OnSpeakerVolChanged" Margin="6,0" />
+                <TextBlock x:Name="SpeakerVolLabel" Grid.Column="2" Text="100%" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
+              </Grid>
+              <Grid ColumnDefinitions="120,*,55">
+                <TextBlock Text="Amp Boost (1–7):" VerticalAlignment="Center" />
+                <Slider x:Name="SpeakerGainSlider" Grid.Column="1" Minimum="1" Maximum="7" Value="6"
+                        ValueChanged="OnSpeakerGainChanged" Margin="6,0" />
+                <TextBlock x:Name="SpeakerGainLabel" Grid.Column="2" Text="6 / 7" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
+              </Grid>
+              <WrapPanel Orientation="Horizontal">
+                <Button Content="Test Controller Speaker Audio" Click="OnTestSpeakerClick" Classes="accent" Margin="0,0,8,4" />
+              </WrapPanel>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="card">
+            <StackPanel Spacing="10">
               <TextBlock Classes="hdr" Text="Actuator Function Testers" />
               <WrapPanel Orientation="Horizontal">
                 <Button Content="0x36 Crisp Tap (160Hz, 300ms)" Click="OnTestCrispTapClick" Margin="0,0,8,8" />

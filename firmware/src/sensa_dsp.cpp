@@ -5,6 +5,10 @@
 #include <cmath>
 #include <cstring>
 
+#if defined(SENSA_HAS_OPUS) && SENSA_HAS_OPUS
+#include "opus.h"
+#endif
+
 #include "pico/time.h"
 #include "tusb.h"
 
@@ -27,8 +31,25 @@ uint8_t decimate_accum_count = 0;
 
 int8_t ready_block[64]{};
 bool ready_block_valid = false;
+uint8_t ready_opus_block[200]{};
+bool ready_opus_valid = false;
 uint32_t last_wave_block_us = 0;
 uint32_t last_haptic_sound_us = 0;
+uint32_t last_speaker_sound_us = 0;
+
+// Speaker 48 kHz stereo accumulator & static Opus encoder (avoids 7 KB Core 0 stack overflow)
+float spk_accum_512[512 * 2]{};
+uint16_t spk_accum_idx = 0;
+float spk_resample_480[480 * 2]{};
+float test_spk_512[512 * 2]{};
+bool test_spk_active = false;
+uint32_t test_spk_start_us = 0;
+uint32_t test_spk_until_us = 0;
+uint32_t test_spk_last_blk_us = 0;
+float test_spk_phase = 0.0f;
+#if defined(SENSA_HAS_OPUS) && SENSA_HAS_OPUS
+OpusEncoder *spk_opus_enc = nullptr;
+#endif
 
 // Peak telemetry (1000 = 100.0%, i.e., tenths of percent)
 uint16_t cur_peak_audio_l = 0;
@@ -76,6 +97,36 @@ inline uint8_t clamp_u8(float v) {
     return static_cast<uint8_t>(v + 0.5f);
 }
 
+bool encode_speaker_512_to_opus(float const stereo512[512 * 2], uint8_t out200[200]) {
+#if defined(SENSA_HAS_OPUS) && SENSA_HAS_OPUS
+    if (spk_opus_enc == nullptr) return false;
+    uint8_t g = std::clamp<uint8_t>(g_dsp_config.speaker_gain, 1, 7);
+    float boost = (g <= 3) ? (0.70f + 0.15f * static_cast<float>(g))
+                           : (1.15f + 0.35f * static_cast<float>(g - 3));
+    if (g_dsp_config.speaker_volume_pct == 0) boost = 0.0f;
+
+    constexpr float kStep = 511.0f / 479.0f;
+    for (int i = 0; i < 480; ++i) {
+        float x = static_cast<float>(i) * kStep;
+        int k = static_cast<int>(x);
+        float frac = x - static_cast<float>(k);
+        int k2 = (k + 1 < 512) ? (k + 1) : 511;
+        for (int c = 0; c < 2; ++c) {
+            float s = stereo512[k * 2 + c] * (1.0f - frac) + stereo512[k2 * 2 + c] * frac;
+            float drv = s * boost;
+            if (boost > 1.0f) drv = std::tanh(drv);
+            spk_resample_480[i * 2 + c] = std::clamp(drv, -0.99f, 0.99f);
+        }
+    }
+    int n = opus_encode_float(spk_opus_enc, spk_resample_480, 480, out200, 200);
+    return n == 200;
+#else
+    (void)stereo512;
+    (void)out200;
+    return false;
+#endif
+}
+
 void push_haptic_pair(int8_t l, int8_t r) {
     building_block[building_pair_idx * 2] = l;
     building_block[building_pair_idx * 2 + 1] = r;
@@ -85,6 +136,16 @@ void push_haptic_pair(int8_t l, int8_t r) {
         ready_block_valid = true;
         ready_has_override = false;
         building_pair_idx = 0;
+
+        bool spk_live = !test_spk_active && !test_wave_active &&
+                        last_speaker_sound_us != 0 &&
+                        static_cast<uint32_t>(time_us_32() - last_speaker_sound_us) <= 400000u;
+        if (spk_live && spk_accum_idx >= 512) {
+            ready_opus_valid = encode_speaker_512_to_opus(spk_accum_512, ready_opus_block);
+        } else {
+            ready_opus_valid = false;
+        }
+        spk_accum_idx = 0;
     }
 }
 
@@ -141,6 +202,12 @@ void process_frames(int16_t const *frames, uint32_t count, uint32_t now_us) {
         if (abs_hl > block_max_hl) block_max_hl = abs_hl;
         if (abs_hr > block_max_hr) block_max_hr = abs_hr;
 
+        if (spk_accum_idx < 512) {
+            spk_accum_512[spk_accum_idx * 2 + 0] = static_cast<float>(al) / 32768.0f;
+            spk_accum_512[spk_accum_idx * 2 + 1] = static_cast<float>(ar) / 32768.0f;
+            spk_accum_idx++;
+        }
+
         // 2-stage 1000 Hz IIR low-pass + 16x decimation -> 3 kHz (ds5-untethered HapticsConverter)
         if ((hl | hr) != 0 || lpf1_l != 0.0f || lpf2_l != 0.0f || lpf1_r != 0.0f || lpf2_r != 0.0f) {
             float fl = static_cast<float>(hl) / 32768.0f;
@@ -181,6 +248,9 @@ void process_frames(int16_t const *frames, uint32_t count, uint32_t now_us) {
     if (block_max_hl > 16 || block_max_hr > 16) {
         last_haptic_sound_us = now_us;
     }
+    if (block_max_al > 24 || block_max_ar > 24) {
+        last_speaker_sound_us = now_us;
+    }
 
     auto to_tenths = [](int32_t peak) -> uint16_t {
         uint32_t p = (static_cast<uint32_t>(peak) * 1000u) / 32767u;
@@ -220,6 +290,21 @@ void dsp_init() {
     std::memset(building_block, 0, sizeof(building_block));
     std::memset(ready_block, 0, sizeof(ready_block));
     std::memset(usb_mic_zeros, 0, sizeof(usb_mic_zeros));
+#if defined(SENSA_HAS_OPUS) && SENSA_HAS_OPUS
+    if (spk_opus_enc == nullptr) {
+        int err = 0;
+        spk_opus_enc = opus_encoder_create(48000, 2, OPUS_APPLICATION_RESTRICTED_LOWDELAY, &err);
+        if (err == OPUS_OK && spk_opus_enc != nullptr) {
+            opus_encoder_ctl(spk_opus_enc, OPUS_SET_EXPERT_FRAME_DURATION(OPUS_FRAMESIZE_10_MS));
+            opus_encoder_ctl(spk_opus_enc, OPUS_SET_BITRATE(160000));
+            opus_encoder_ctl(spk_opus_enc, OPUS_SET_VBR(0));
+            opus_encoder_ctl(spk_opus_enc, OPUS_SET_COMPLEXITY(0));
+            opus_encoder_ctl(spk_opus_enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+        } else {
+            spk_opus_enc = nullptr;
+        }
+    }
+#endif
 }
 
 void dsp_trigger_test_rumble(uint8_t right, uint8_t left, uint32_t duration_ms) {
@@ -238,6 +323,16 @@ void dsp_trigger_test_wave(HapticMode proto, uint8_t amp, uint16_t freq_hz, uint
     test_wave_until_us = time_us_32() + duration_ms * 1000u;
     test_wave_phase = 0.0f;
     last_wave_block_us = 0;
+}
+
+void dsp_trigger_test_speaker(uint32_t duration_ms) {
+    uint32_t now = time_us_32();
+    test_spk_active = true;
+    test_spk_start_us = now;
+    test_spk_until_us = now + duration_ms * 1000u;
+    test_spk_last_blk_us = 0;
+    test_spk_phase = 0.0f;
+    bt_request_state_update();
 }
 
 bool dsp_has_active_test_rumble() {
@@ -268,17 +363,39 @@ bool dsp_is_haptics_active() {
     return static_cast<uint32_t>(time_us_32() - last_haptic_sound_us) <= 300000u;
 }
 
-bool dsp_take_haptic_block(int8_t out_block[64], HapticMode &override_proto) {
+bool dsp_is_speaker_active() {
+    if (test_spk_active) return true;
+    if (!g_telemetry.usb_speaker_streaming || last_speaker_sound_us == 0) return false;
+    return static_cast<uint32_t>(time_us_32() - last_speaker_sound_us) <= 400000u;
+}
+
+bool dsp_is_speaker_test_active() {
+    return test_spk_active;
+}
+
+bool dsp_take_audio_block(int8_t out_haptics[64], uint8_t out_opus[200], bool &has_opus, HapticMode &override_proto) {
     if (!ready_block_valid) return false;
     ready_block_valid = false;
     bool has_override = ready_has_override;
     override_proto = has_override ? ready_override_proto : g_haptic_mode;
     ready_has_override = false;
-    if (!has_override && !dsp_is_haptics_active()) {
+    bool use_opus = ready_opus_valid;
+    ready_opus_valid = false;
+    if (!has_override && !dsp_is_haptics_active() && !use_opus) {
         return false;
     }
-    std::memcpy(out_block, ready_block, 64);
+    std::memcpy(out_haptics, ready_block, 64);
+    has_opus = use_opus;
+    if (use_opus && out_opus != nullptr) {
+        std::memcpy(out_opus, ready_opus_block, 200);
+    }
     return true;
+}
+
+bool dsp_take_haptic_block(int8_t out_block[64], HapticMode &override_proto) {
+    uint8_t dummy_opus[200];
+    bool dummy_has_opus = false;
+    return dsp_take_audio_block(out_block, dummy_opus, dummy_has_opus, override_proto);
 }
 
 void dsp_poll() {
@@ -357,7 +474,37 @@ void dsp_poll() {
                 if (test_wave_phase >= kTwoPi) test_wave_phase -= kTwoPi;
             }
             ready_block_valid = true;
+            ready_opus_valid = false;
             ready_override_proto = test_wave_proto;
+            ready_has_override = true;
+        }
+    } else if (test_spk_active) {
+        if (static_cast<int32_t>(now_us - test_spk_until_us) >= 0) {
+            test_spk_active = false;
+            bt_request_state_update();
+        } else if (test_spk_last_blk_us == 0 || static_cast<uint32_t>(now_us - test_spk_last_blk_us) >= 10667u) {
+            test_spk_last_blk_us = now_us;
+            uint32_t total_us = test_spk_until_us - test_spk_start_us;
+            uint32_t elapsed_us = now_us - test_spk_start_us;
+            float freq = (elapsed_us * 10u < total_us * 4u) ? 587.33f : 880.0f;
+            float env = 0.65f;
+            if (elapsed_us < 20000u) env *= static_cast<float>(elapsed_us) / 20000.0f;
+            uint32_t rem_us = test_spk_until_us - now_us;
+            if (rem_us < 70000u) env *= static_cast<float>(rem_us) / 70000.0f;
+
+            constexpr float kTwoPi = 6.2831853f;
+            float phase_inc = kTwoPi * freq / 48000.0f;
+            for (int i = 0; i < 512; ++i) {
+                float s = (std::sin(test_spk_phase) + 0.25f * std::sin(test_spk_phase * 2.0f)) * 0.72f * env;
+                test_spk_512[i * 2 + 0] = s;
+                test_spk_512[i * 2 + 1] = s;
+                test_spk_phase += phase_inc;
+                if (test_spk_phase >= kTwoPi) test_spk_phase -= kTwoPi;
+            }
+            std::memset(ready_block, 0, sizeof(ready_block));
+            ready_opus_valid = encode_speaker_512_to_opus(test_spk_512, ready_opus_block);
+            ready_block_valid = true;
+            ready_override_proto = HapticMode::Mode36Haptics;
             ready_has_override = true;
         }
     }

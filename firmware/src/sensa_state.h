@@ -67,6 +67,8 @@ struct DspConfig {
     uint8_t haptic_gain_pct = 150;     // PCM waveform scale for 0x36/0x39 (ds5-untethered default 1.5x + tanh)
     ImpulseTriggerMode impulse_mode = ImpulseTriggerMode::Always; // Xbox 360-style L2/R2 impulse triggers from rumble
     uint8_t impulse_strength_pct = 85;                            // 0..100% intensity for synthesized 0x26 triggers
+    uint8_t speaker_volume_pct = 100;                             // Controller speaker hardware volume (0..100% -> 0x00..0x64)
+    uint8_t speaker_gain = 6;                                     // Hardware preamp + PCM boost (1..7, default 6 for quiet speakers)
 };
 
 struct HostOutputState {

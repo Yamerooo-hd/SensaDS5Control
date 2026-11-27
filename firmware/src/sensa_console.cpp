@@ -146,13 +146,28 @@ void handle_command(char *line) {
         g_usb_poll_rate_hz = normalize_poll_rate_hz(atoi(tokens[1]));
         config_mark_dirty();
         console_printf("[POLLRATE] usb_poll_rate=%uHz\n", g_usb_poll_rate_hz);
+    } else if (eq_ci(cmd, "spkvol") && argc >= 2) {
+        g_dsp_config.speaker_volume_pct = static_cast<uint8_t>(clamp_arg(tokens[1], 0, 100));
+        bt_request_state_update();
+        config_mark_dirty();
+        console_printf("[SPK] volume=%u%% preamp=%u\n", g_dsp_config.speaker_volume_pct, g_dsp_config.speaker_gain);
+    } else if (eq_ci(cmd, "spkgain") && argc >= 2) {
+        g_dsp_config.speaker_gain = static_cast<uint8_t>(clamp_arg(tokens[1], 1, 7));
+        bt_request_state_update();
+        config_mark_dirty();
+        console_printf("[SPK] volume=%u%% preamp=%u\n", g_dsp_config.speaker_volume_pct, g_dsp_config.speaker_gain);
+    } else if (eq_ci(cmd, "testspk")) {
+        int ms = argc >= 2 ? clamp_arg(tokens[1], 150, 4000) : 900;
+        dsp_trigger_test_speaker(static_cast<uint32_t>(ms));
+        console_printf("[TEST] Controller speaker chime for %d ms (vol=%u%% preamp=%u)\n",
+                       ms, g_dsp_config.speaker_volume_pct, g_dsp_config.speaker_gain);
     } else if (eq_ci(cmd, "save")) {
         config_save_now();
     } else if (eq_ci(cmd, "getcfg")) {
         uint8_t led_en = 0, lr = 0, lg = 0, lb = 0, mic = 0, tr_en = 0, tl_en = 0;
         uint8_t tr[11]{}, tl[11]{};
         bt_export_persisted_state(led_en, lr, lg, lb, mic, tr_en, tr, tl_en, tl);
-        console_printf("CFG,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%s,%u,%u\n",
+        console_printf("CFG,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%s,%u,%u,%u,%u\n",
                        config_is_flash_fresh() ? 1u : 0u,
                        static_cast<unsigned>(g_usb_mode),
                        static_cast<unsigned>(g_haptic_mode),
@@ -162,7 +177,9 @@ void handle_command(char *line) {
                        g_stick_deadzone_pct,
                        led_en, lr, lg, lb, mic, tl_en, tr_en, kFirmwareVersion,
                        g_telemetry.bt_has_bonded_key ? 1u : 0u,
-                       g_usb_poll_rate_hz);
+                       g_usb_poll_rate_hz,
+                       g_dsp_config.speaker_volume_pct,
+                       g_dsp_config.speaker_gain);
     } else if (eq_ci(cmd, "imptrigtest")) {
         int pct = argc >= 2 ? clamp_arg(tokens[1], 5, 100) : 85;
         int ms = argc >= 3 ? clamp_arg(tokens[2], 50, 3000) : 600;
@@ -331,6 +348,7 @@ void console_print_help() {
     console_printf("  imptrigtest [pct] [ms] - Pulse L2+R2 0x26 trigger vibration test\n");
     console_printf("  deadzone <0..25>    - Stick inner radial deadzone %% (saved in flash)\n");
     console_printf("  pollrate <250|500|1000> - USB polling rate Hz for DualSense & Xbox 360\n");
+    console_printf("  spkvol <0..100> | spkgain <1..7> | testspk [ms] - Controller speaker volume, preamp & audio chime\n");
     console_printf("  usbmode <ds5|x360>  - Switch USB identity, save & soft-reboot\n");
     console_printf("  save | getcfg | tele <0|1> | btmon <0|1> | unlock <0..4> | dbg\n");
     console_printf("  pair | forget | disconnect | reconnect | reboot | bootsel\n\n");

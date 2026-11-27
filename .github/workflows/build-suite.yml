@@ -41,23 +41,25 @@ jobs:
           tar -xf "/tmp/${TARBALL}" -C "${{ runner.temp }}/arm-gnu-toolchain" --strip-components=1
           rm -f "/tmp/${TARBALL}"
 
-      - name: Cache Pico SDK and TinyUSB
+      - name: Cache Pico SDK, TinyUSB, and Opus
         id: cache-pico-sdk
         uses: actions/cache@v4
         with:
           path: |
             ${{ runner.temp }}/pico-sdk
             ${{ runner.temp }}/tinyusb
-          key: pico-sdk-${{ env.PICO_SDK_REF }}-tinyusb-${{ env.TINYUSB_REF }}-btstack-cyw43-lwip-v2
+            ${{ runner.temp }}/opus
+          key: pico-sdk-${{ env.PICO_SDK_REF }}-tinyusb-${{ env.TINYUSB_REF }}-opus-v1.5.2-btstack-cyw43-v3
 
-      - name: Checkout Pico SDK and TinyUSB
+      - name: Checkout Pico SDK, TinyUSB, and Opus
         if: steps.cache-pico-sdk.outputs.cache-hit != 'true'
         run: |
-          rm -rf "${{ runner.temp }}/pico-sdk" "${{ runner.temp }}/tinyusb"
+          rm -rf "${{ runner.temp }}/pico-sdk" "${{ runner.temp }}/tinyusb" "${{ runner.temp }}/opus"
           git clone --depth 1 --branch "${{ env.PICO_SDK_REF }}" https://github.com/raspberrypi/pico-sdk.git "${{ runner.temp }}/pico-sdk"
           git -C "${{ runner.temp }}/pico-sdk" submodule update --init --depth 1 lib/btstack lib/cyw43-driver lib/lwip
           git clone https://github.com/hathach/tinyusb.git "${{ runner.temp }}/tinyusb"
           git -C "${{ runner.temp }}/tinyusb" checkout "${{ env.TINYUSB_REF }}"
+          git clone --depth 1 --branch v1.5.2 https://github.com/xiph/opus.git "${{ runner.temp }}/opus"
 
       - name: Build SensaBridge and flash_nuke (pico2_w)
         run: |
@@ -65,6 +67,7 @@ jobs:
           cmake -S firmware -B build-fw -G Ninja \
             -DPICO_SDK_PATH="${{ runner.temp }}/pico-sdk" \
             -DPICO_TINYUSB_PATH="${{ runner.temp }}/tinyusb" \
+            -DPICO_OPUS_PATH="${{ runner.temp }}/opus" \
             -DPICO_BOARD=pico2_w \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-fw -j
