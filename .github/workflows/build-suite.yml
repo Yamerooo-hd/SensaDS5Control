@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - release
   workflow_dispatch:
 
 jobs:
@@ -138,3 +139,51 @@ jobs:
         with:
           name: sensa-ds5-control-packages
           path: dist-packages/*
+
+  publish-release:
+    if: github.ref == 'refs/heads/release'
+    needs: [build-firmware, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download firmware artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: sensa-bridge-pico2_w
+          path: release-stage/fw
+
+      - name: Download Windows single-file EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: sensa-ds5-control-win-x64
+          path: release-stage/win
+
+      - name: Download Windows Setup & Portable packages
+        uses: actions/download-artifact@v4
+        with:
+          name: sensa-ds5-control-packages
+          path: release-stage/pkg
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          VER=$(tr -d '\r\n ' < release-stage/fw/fw_version.txt)
+          TAG="v${VER}"
+          mkdir -p release-assets
+          cp release-stage/fw/SensaBridge.uf2 release-assets/
+          cp release-stage/fw/flash_nuke.uf2 release-assets/
+          cp release-stage/win/SensaDS5Control.exe release-assets/
+          cp release-stage/pkg/* release-assets/
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+            gh release edit "$TAG" --latest
+          else
+            gh release create "$TAG" release-assets/* \
+              --target "$GITHUB_SHA" \
+              --title "SensaDS5Control ${TAG}" \
+              --notes "Automated release build from release branch (Pico 2 W firmware ${TAG} + Windows suite)." \
+              --latest
+          fi

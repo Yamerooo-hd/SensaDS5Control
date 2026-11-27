@@ -23,7 +23,8 @@ public static class GitHubUpdater
         string tag = root.TryGetProperty("tag_name", out var t) ? t.GetString() ?? "" : "";
         string? notes = root.TryGetProperty("body", out var b) ? b.GetString() : null;
         string? uf2Url = null;
-        string? appUrl = null;
+        string? appExeUrl = null;
+        string? appZipUrl = null;
 
         if (root.TryGetProperty("assets", out var assets))
         {
@@ -31,12 +32,45 @@ public static class GitHubUpdater
             {
                 string name = a.GetProperty("name").GetString() ?? "";
                 string dl = a.GetProperty("browser_download_url").GetString() ?? "";
-                if (name.EndsWith(".uf2", StringComparison.OrdinalIgnoreCase)) uf2Url = dl;
-                if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
-                    name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) appUrl = dl;
+                if (name.Equals("SensaBridge.uf2", StringComparison.OrdinalIgnoreCase) ||
+                    (uf2Url == null && name.EndsWith(".uf2", StringComparison.OrdinalIgnoreCase) &&
+                     !name.Contains("nuke", StringComparison.OrdinalIgnoreCase)))
+                {
+                    uf2Url = dl;
+                }
+                if (name.Equals("SensaDS5Control.exe", StringComparison.OrdinalIgnoreCase))
+                    appExeUrl = dl;
+                else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                    appZipUrl = dl;
             }
         }
-        return new UpdateCheckResult(tag, uf2Url, appUrl, notes);
+        return new UpdateCheckResult(tag, uf2Url, appExeUrl ?? appZipUrl, notes);
+    }
+
+    public static async Task<(byte[]? ExeBytes, string? TagName, string? ErrorMessage)> DownloadLatestReleaseExeBytesAsync(
+        CancellationToken ct)
+    {
+        try
+        {
+            var rel = await CheckLatestReleaseAsync(token: null, ct);
+            if (rel == null)
+                return (null, null, "No public GitHub release published yet.");
+            if (string.IsNullOrWhiteSpace(rel.AppZipDownloadUrl))
+                return (null, rel.TagName, $"Release {rel.TagName} has no portable app package.");
+
+            using var http = CreateClient(token: null);
+            var bytes = await http.GetByteArrayAsync(rel.AppZipDownloadUrl, ct);
+            var exe = rel.AppZipDownloadUrl.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                ? bytes
+                : ExtractFirstMatchingFromZip(bytes, ".exe");
+            if (exe == null || exe.Length < 100_000)
+                return (null, rel.TagName, $"Release {rel.TagName} did not contain a valid SensaDS5Control.exe.");
+            return (exe, rel.TagName, null);
+        }
+        catch (Exception ex)
+        {
+            return (null, null, ex.Message);
+        }
     }
 
     public static async Task<byte[]?> DownloadLatestFirmwareBytesAsync(string? token, CancellationToken ct)
