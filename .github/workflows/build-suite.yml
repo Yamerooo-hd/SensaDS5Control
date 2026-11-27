@@ -69,15 +69,9 @@ jobs:
           cmake --build build-fw -j
           arm-none-eabi-size build-fw/sensa-bridge.elf
 
-          cmake -S firmware/nuke -B build-nuke -G Ninja \
-            -DPICO_SDK_PATH="${{ runner.temp }}/pico-sdk" \
-            -DPICO_BOARD=pico2_w \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build-nuke -j
-
           mkdir -p dist-fw
           cp build-fw/sensa-bridge.uf2 dist-fw/SensaBridge.uf2
-          cp build-nuke/pico_flash_nuke.uf2 dist-fw/flash_nuke.uf2
+          cp build-fw/pico_flash_nuke.uf2 dist-fw/flash_nuke.uf2
           grep -oP 'kFirmwareVersion\s*=\s*"\K[^"]+' firmware/src/sensa_state.h > dist-fw/fw_version.txt || echo "0.2.0" > dist-fw/fw_version.txt
 
       - name: Upload Pico 2 W firmware artifacts

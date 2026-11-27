@@ -119,3 +119,13 @@ target_link_libraries(sensa-bridge
 )
 
 pico_add_extra_outputs(sensa-bridge)
+
+add_executable(pico_flash_nuke
+    nuke/nuke.c
+)
+pico_set_binary_type(pico_flash_nuke no_flash)
+target_link_libraries(pico_flash_nuke
+    pico_stdlib
+    hardware_flash
+)
+pico_add_extra_outputs(pico_flash_nuke)
