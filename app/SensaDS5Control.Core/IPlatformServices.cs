@@ -9,5 +9,7 @@ public interface IPlatformServices
     void MouseScroll(int delta);
     bool GetSystemMicMuted();
     void SetSystemMicMuted(bool muted);
+    bool GetStartWithWindows();
+    void SetStartWithWindows(bool enabled, bool startMinimized = true);
     Task<string> FlashUf2ToPicoAsync(byte[] uf2Bytes, Action sendBootselCommand, CancellationToken ct);
 }

@@ -1252,6 +1252,34 @@ void bt_set_telemetry_stream(bool enable) {
     last_tele_us = time_us_32();
 }
 
+void bt_export_persisted_state(
+    uint8_t &led_override, uint8_t &led_r, uint8_t &led_g, uint8_t &led_b, uint8_t &mic_led_mode,
+    uint8_t &trig_r_en, uint8_t trig_r[11], uint8_t &trig_l_en, uint8_t trig_l[11]) {
+    led_override = led_override_active ? 1u : 0u;
+    led_r = led_override_r;
+    led_g = led_override_g;
+    led_b = led_override_b;
+    mic_led_mode = mic_led_override_mode;
+    trig_r_en = trig_r_override_active ? 1u : 0u;
+    std::memcpy(trig_r, trig_r_override, 11);
+    trig_l_en = trig_l_override_active ? 1u : 0u;
+    std::memcpy(trig_l, trig_l_override, 11);
+}
+
+void bt_import_persisted_state(
+    bool led_override, uint8_t led_r, uint8_t led_g, uint8_t led_b, uint8_t mic_led_mode,
+    bool trig_r_en, uint8_t const trig_r[11], bool trig_l_en, uint8_t const trig_l[11]) {
+    led_override_active = led_override;
+    led_override_r = led_r;
+    led_override_g = led_g;
+    led_override_b = led_b;
+    mic_led_override_mode = (mic_led_mode > 2) ? 2 : mic_led_mode;
+    trig_r_override_active = trig_r_en;
+    if (trig_r_en && trig_r) std::memcpy(trig_r_override, trig_r, 11);
+    trig_l_override_active = trig_l_en;
+    if (trig_l_en && trig_l) std::memcpy(trig_l_override, trig_l, 11);
+}
+
 bool bt_copy_cached_feature(uint8_t report_id, uint8_t *buf, uint16_t cap, uint16_t &copied) {
     copied = 0;
     for (auto const &e : feat_cache) {

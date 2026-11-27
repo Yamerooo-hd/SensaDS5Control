@@ -1,6 +1,7 @@
 #include "sensa_console.h"
 #include "sensa_bt.h"
 #include "sensa_dsp.h"
+#include "sensa_flash.h"
 #include "sensa_state.h"
 
 #include <cstdarg>
@@ -99,13 +100,15 @@ void handle_command(char *line) {
         bt_set_telemetry_stream(en);
         console_printf("[TELE] %s\n", en ? "ON (30Hz)" : "OFF");
     } else if (eq_ci(cmd, "micled") && argc >= 2) {
-        uint8_t m = static_cast<uint8_t>(strtol(tokens[1], nullptr, 0));
+        uint8_t m = static_cast<uint8_t>(clamp_arg(tokens[1], 0, 2));
         bt_set_mic_led(m);
+        config_mark_dirty();
         console_printf("[MICLED] mode=%u\n", m);
     } else if (eq_ci(cmd, "trig") && argc >= 3) {
         uint8_t side = eq_ci(tokens[1], "r") ? 0 : (eq_ci(tokens[1], "l") ? 1 : 2);
         if (eq_ci(tokens[2], "auto")) {
             bt_set_trigger_override(side, false, nullptr);
+            config_mark_dirty();
             console_printf("[TRIG] side=%u -> AUTO (game)\n", side);
         } else {
             uint8_t d[11]{};
@@ -113,6 +116,7 @@ void handle_command(char *line) {
                 d[i] = static_cast<uint8_t>(strtol(tokens[2 + i], nullptr, 0));
             }
             bt_set_trigger_override(side, true, d);
+            config_mark_dirty();
             console_printf("[TRIG] side=%u mode=0x%02X p1=0x%02X p2=0x%02X p3=0x%02X\n",
                            side, d[0], d[1], d[2], d[3]);
         }
@@ -130,9 +134,29 @@ void handle_command(char *line) {
             g_dsp_config.impulse_strength_pct = static_cast<uint8_t>(clamp_arg(tokens[2], 0, 100));
         }
         bt_request_state_update();
+        config_mark_dirty();
         console_printf("[IMPTRIG] mode=%u strength=%u%%\n",
                        static_cast<unsigned>(g_dsp_config.impulse_mode),
                        g_dsp_config.impulse_strength_pct);
+    } else if (eq_ci(cmd, "deadzone") && argc >= 2) {
+        g_stick_deadzone_pct = static_cast<uint8_t>(clamp_arg(tokens[1], 0, 25));
+        config_mark_dirty();
+        console_printf("[DEADZONE] stick_deadzone=%u%%\n", g_stick_deadzone_pct);
+    } else if (eq_ci(cmd, "save")) {
+        config_save_now();
+    } else if (eq_ci(cmd, "getcfg")) {
+        uint8_t led_en = 0, lr = 0, lg = 0, lb = 0, mic = 0, tr_en = 0, tl_en = 0;
+        uint8_t tr[11]{}, tl[11]{};
+        bt_export_persisted_state(led_en, lr, lg, lb, mic, tr_en, tr, tl_en, tl);
+        console_printf("CFG,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",
+                       config_is_flash_fresh() ? 1u : 0u,
+                       static_cast<unsigned>(g_usb_mode),
+                       static_cast<unsigned>(g_haptic_mode),
+                       g_dsp_config.haptic_gain_pct,
+                       static_cast<unsigned>(g_dsp_config.impulse_mode),
+                       g_dsp_config.impulse_strength_pct,
+                       g_stick_deadzone_pct,
+                       led_en, lr, lg, lb, mic, tl_en, tr_en);
     } else if (eq_ci(cmd, "imptrigtest")) {
         int pct = argc >= 2 ? clamp_arg(tokens[1], 5, 100) : 85;
         int ms = argc >= 3 ? clamp_arg(tokens[2], 50, 3000) : 600;
@@ -150,6 +174,7 @@ void handle_command(char *line) {
             console_printf("[MODE] Unknown mode '%s' (use 31|32|36|39|hybrid|raw)\n", m);
             return;
         }
+        config_mark_dirty();
         console_printf("[MODE] Switched live to: %s\n", haptic_mode_name(g_haptic_mode));
     } else if (eq_ci(cmd, "pulse")) {
         int r = argc >= 2 ? clamp_arg(tokens[1], 0, 255) : 180;
@@ -179,6 +204,7 @@ void handle_command(char *line) {
             console_printf("[TUNE] Keys: floor | gain (x10) | min | hold | decay | hgain\n");
             return;
         }
+        config_mark_dirty();
         console_printf("[TUNE] floor=%u%% gain=%.1fx min=%u hold=%ums decay=%ums hgain=%u%%\n",
                        g_dsp_config.noise_floor_pct, g_dsp_config.gain_x10 / 10.0f,
                        g_dsp_config.min_rumble, g_dsp_config.hold_ms, g_dsp_config.decay_ms,
@@ -186,12 +212,14 @@ void handle_command(char *line) {
     } else if (eq_ci(cmd, "led") && argc >= 2) {
         if (eq_ci(tokens[1], "auto")) {
             bt_clear_override_led();
+            config_mark_dirty();
             console_printf("[LED] Released to game (AUTO)\n");
         } else if (argc >= 4) {
             uint8_t r = static_cast<uint8_t>(clamp_arg(tokens[1], 0, 255));
             uint8_t g = static_cast<uint8_t>(clamp_arg(tokens[2], 0, 255));
             uint8_t b = static_cast<uint8_t>(clamp_arg(tokens[3], 0, 255));
             bt_set_override_led(r, g, b);
+            config_mark_dirty();
             console_printf("[LED] Sent R=%u G=%u B=%u\n", r, g, b);
         } else {
             console_printf("[LED] Usage: led <r> <g> <b> | led auto\n");
@@ -212,9 +240,11 @@ void handle_command(char *line) {
             if (!ok) {
                 console_printf("[USBMODE] Unknown '%s'. Use ds5 or x360.\n", tokens[1]);
             } else {
+                g_usb_mode = target;
+                config_save_now();
                 watchdog_hw->scratch[0] = kUsbModeScratchMagic;
                 watchdog_hw->scratch[1] = static_cast<uint32_t>(target);
-                console_printf("[USBMODE] Switching USB identity to %s -> rebooting...\n", usb_mode_name(target));
+                console_printf("[USBMODE] Switching USB identity to %s (saved to flash) -> rebooting...\n", usb_mode_name(target));
                 console_poll();
                 sleep_ms(60);
                 watchdog_reboot(0, 0, 0);
@@ -293,8 +323,9 @@ void console_print_help() {
     console_printf("  trig <R|L|both> <auto|mode p0..p9> - Adaptive trigger override\n");
     console_printf("  imptrig <off|always|pulled> [0..100] - Xbox 360 Impulse Triggers & strength %%\n");
     console_printf("  imptrigtest [pct] [ms] - Pulse L2+R2 0x26 trigger vibration test\n");
-    console_printf("  usbmode <ds5|x360>  - Switch USB identity & soft-reboot\n");
-    console_printf("  tele <0|1> | btmon <0|1> | unlock <0..4> | dbg\n");
+    console_printf("  deadzone <0..25>    - Stick inner radial deadzone %% (saved in flash)\n");
+    console_printf("  usbmode <ds5|x360>  - Switch USB identity, save & soft-reboot\n");
+    console_printf("  save | getcfg | tele <0|1> | btmon <0|1> | unlock <0..4> | dbg\n");
     console_printf("  pair | forget | disconnect | reconnect | reboot | bootsel\n\n");
 }
 

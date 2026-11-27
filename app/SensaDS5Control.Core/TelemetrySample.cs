@@ -72,3 +72,51 @@ public sealed record TelemetrySample(
         }
     }
 }
+
+public sealed record PicoConfigSample(
+    bool IsFreshFlash,
+    byte UsbMode,
+    byte HapticMode,
+    byte HapticGainPct,
+    byte ImpulseMode,
+    byte ImpulseStrengthPct,
+    byte StickDeadzonePct,
+    bool LedOverride,
+    byte LedR,
+    byte LedG,
+    byte LedB,
+    byte MicLedMode,
+    bool LeftTriggerOverride,
+    bool RightTriggerOverride)
+{
+    public static bool TryParse(string line, out PicoConfigSample cfg)
+    {
+        cfg = default!;
+        if (!line.StartsWith("CFG,", StringComparison.Ordinal)) return false;
+        var p = line.Split(',');
+        if (p.Length < 15) return false;
+        try
+        {
+            cfg = new PicoConfigSample(
+                IsFreshFlash: p[1] == "1",
+                UsbMode: byte.Parse(p[2]),
+                HapticMode: byte.Parse(p[3]),
+                HapticGainPct: byte.Parse(p[4]),
+                ImpulseMode: byte.Parse(p[5]),
+                ImpulseStrengthPct: byte.Parse(p[6]),
+                StickDeadzonePct: byte.Parse(p[7]),
+                LedOverride: p[8] == "1",
+                LedR: byte.Parse(p[9]),
+                LedG: byte.Parse(p[10]),
+                LedB: byte.Parse(p[11]),
+                MicLedMode: byte.Parse(p[12]),
+                LeftTriggerOverride: p[13] == "1",
+                RightTriggerOverride: p[14] == "1");
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}

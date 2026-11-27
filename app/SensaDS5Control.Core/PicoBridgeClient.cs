@@ -15,6 +15,7 @@ public sealed class PicoBridgeClient : IDisposable
 
     public event Action<bool, string?>? ConnectionChanged;
     public event Action<TelemetrySample>? TelemetryReceived;
+    public event Action<PicoConfigSample>? ConfigReceived;
     public event Action<string>? LogLineReceived;
 
     public async Task<bool> ConnectAsync(string portName, bool wakeController = false)
@@ -58,6 +59,7 @@ public sealed class PicoBridgeClient : IDisposable
                     ConnectionChanged?.Invoke(true, portName);
                     _ = Task.Run(() => ReadLoopAsync(gen, sp, cts.Token));
                     SendCommand("tele 1");
+                    SendCommand("getcfg");
                     if (wakeController) SendCommand("reconnect");
                     return true;
                 }
@@ -195,6 +197,11 @@ public sealed class PicoBridgeClient : IDisposable
                             try { TelemetryReceived?.Invoke(sample); }
                             catch (Exception ex) { LogLineReceived?.Invoke($"[APP] Telemetry error: {ex.Message}"); }
                         }
+                        else if (PicoConfigSample.TryParse(line, out var cfg))
+                        {
+                            try { ConfigReceived?.Invoke(cfg); }
+                            catch (Exception ex) { LogLineReceived?.Invoke($"[APP] Config error: {ex.Message}"); }
+                        }
                         else
                         {
                             try { LogLineReceived?.Invoke(line); } catch { }
@@ -230,6 +237,11 @@ public sealed class PicoBridgeClient : IDisposable
     public void SetHapticGain(int pct) => SendCommand($"tune hgain {Math.Clamp(pct, 25, 255)}");
     public void SetImpulseTriggers(int mode, int strengthPct) => SendCommand($"imptrig {Math.Clamp(mode, 0, 2)} {Math.Clamp(strengthPct, 0, 100)}");
     public void TriggerImpulseTest(int pct = 85, int ms = 650) => SendCommand($"imptrigtest {Math.Clamp(pct, 10, 100)} {Math.Clamp(ms, 50, 3000)}");
+    public void SetStickDeadzone(int pct) => SendCommand($"deadzone {Math.Clamp(pct, 0, 25)}");
+    public void RequestConfig() => SendCommand("getcfg");
+    public void SaveConfigToFlash() => SendCommand("save");
+    public void StartPairing() => SendCommand("pair");
+    public void ForgetAllBonds() => SendCommand("forget");
     public void SetMode(string mode) => SendCommand($"mode {mode}");
     public void TriggerTestPulse(int r, int l, int ms) => SendCommand($"pulse {r} {l} {ms}");
     public void TriggerTestWave(string proto, int amp, int hz, int ms) => SendCommand($"test{proto} {amp} {hz} {ms}");

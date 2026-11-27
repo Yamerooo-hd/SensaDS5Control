@@ -46,6 +46,12 @@
               </WrapPanel>
               <Button x:Name="ConnectBtn" Content="Connect" Click="OnConnectClick"
                       HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Classes="accent" />
+              <Grid ColumnDefinitions="*,*">
+                <Button Content="Pair New" Click="OnPairNewClick" FontSize="11" Padding="6,5"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,0,3,0" />
+                <Button Grid.Column="1" Content="Reset Bond" Click="OnForgetBondClick" FontSize="11" Padding="6,5"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="3,0,0,0" />
+              </Grid>
             </StackPanel>
           </Border>
 
@@ -150,35 +156,51 @@
                   <TextBlock Grid.Row="1" Text="Haptic R:" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
                   <ProgressBar x:Name="DashHapticRBar" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Height="8" />
                 </Grid>
-                <TextBlock Classes="dim" Text="0x36 Audio-Haptics stream automatically in DualSense mode; switch to Xbox 360 anytime for universal XInput." TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
+                  <TextBlock x:Name="FlashSyncBadgeTxt" Classes="dim" Text="Pico Flash: Standalone Ready" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Content="Save to Pico Flash" Click="OnSaveFlashClick" FontSize="11" Padding="10,5" />
+                </Grid>
               </StackPanel>
             </Grid>
           </Border>
 
           <Grid ColumnDefinitions="*,*">
-            <!-- Mouse & Gyro Card -->
+            <!-- Mouse, Gyro & Stick Deadzone Card -->
             <Border Classes="card" Margin="0,0,7,0">
-              <StackPanel Spacing="10">
-                <TextBlock Classes="hdr" Text="Touchpad &amp; Gyro Mouse" />
+              <StackPanel Spacing="9">
+                <TextBlock Classes="hdr" Text="Mouse, Gyro &amp; Stick Tuning" />
                 <CheckBox x:Name="TouchMouseChk" Content="Touchpad as Mouse (1-finger move, tap click, 2-finger scroll)"
                           IsCheckedChanged="OnMouseSettingsChanged" />
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <TextBlock Text="Touch Sens:" VerticalAlignment="Center" Width="82" Foreground="{DynamicResource TextSecondaryBrush}" />
-                  <Slider x:Name="TouchSensSlider" Minimum="0.3" Maximum="3.5" Value="1.2" Width="175"
-                          ValueChanged="OnMouseSettingsChanged" />
-                  <TextBlock x:Name="TouchSensLabel" Text="1.2x" VerticalAlignment="Center" FontWeight="SemiBold" />
-                </StackPanel>
+                <Grid ColumnDefinitions="92,*,46">
+                  <TextBlock Text="Touch Sens:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                  <Slider x:Name="TouchSensSlider" Grid.Column="1" Minimum="0.3" Maximum="3.5" Value="1.2"
+                          ValueChanged="OnMouseSettingsChanged" Margin="4,0" />
+                  <TextBlock x:Name="TouchSensLabel" Grid.Column="2" Text="1.2x" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                </Grid>
                 <CheckBox x:Name="GyroMouseChk" Content="Gyro Aiming as Mouse" IsCheckedChanged="OnMouseSettingsChanged" />
+                <Grid ColumnDefinitions="92,*,46">
+                  <TextBlock Text="Gyro Sens:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                  <Slider x:Name="GyroSensSlider" Grid.Column="1" Minimum="0.01" Maximum="0.12" Value="0.035"
+                          ValueChanged="OnMouseSettingsChanged" Margin="4,0" />
+                  <TextBlock x:Name="GyroSensLabel" Grid.Column="2" Text="0.035" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                </Grid>
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <CheckBox x:Name="GyroL2Chk" Content="Only while holding L2" IsChecked="True" IsCheckedChanged="OnMouseSettingsChanged" />
                   <Button Content="Calibrate Zero" Click="OnCalibrateGyroClick" />
                 </StackPanel>
+                <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
+                <Grid ColumnDefinitions="108,*,42">
+                  <TextBlock Text="Stick Deadzone:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                  <Slider x:Name="StickDeadzoneSlider" Grid.Column="1" Minimum="0" Maximum="25" Value="4"
+                          ValueChanged="OnDeadzoneChanged" Margin="4,0" />
+                  <TextBlock x:Name="StickDeadzoneLabel" Grid.Column="2" Text="4%" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                </Grid>
               </StackPanel>
             </Border>
 
-            <!-- USB Mode + Impulse Triggers Card -->
+            <!-- USB Mode + Impulse Triggers + Standalone Behavior Card -->
             <Border Grid.Column="1" Classes="card" Margin="7,0,0,0">
-              <StackPanel Spacing="10">
+              <StackPanel Spacing="9">
                 <TextBlock Classes="hdr" Text="USB Personality &amp; Impulse Triggers" />
                 <Grid ColumnDefinitions="*,*">
                   <Button x:Name="BtnUsbDs5" Content="DualSense (054C:0CE6)" Click="OnUsbModeDs5Click"
@@ -198,9 +220,25 @@
                   <TextBlock x:Name="ImpulseStrengthLabel" Text="85%" VerticalAlignment="Center" Width="40" FontWeight="SemiBold" />
                   <Button Content="Test" Click="OnTestImpulseTriggersClick" />
                 </StackPanel>
+                <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
+                <WrapPanel Orientation="Horizontal">
+                  <CheckBox x:Name="MinToTrayChk" Content="Minimize to System Tray on Close" IsChecked="True"
+                            IsCheckedChanged="OnAppBehaviorChanged" Margin="0,0,12,0" />
+                  <CheckBox x:Name="StartWithWinChk" Content="Launch at Windows Startup"
+                            IsCheckedChanged="OnAppBehaviorChanged" />
+                </WrapPanel>
               </StackPanel>
             </Border>
           </Grid>
+
+          <!-- Pico Standalone Physical BOOTSEL Button Cheat-Sheet -->
+          <Border Classes="card" Padding="14,11">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="hdr" Text="Pico Standalone Controls (Works Without Companion App)" FontSize="13" />
+              <TextBlock Classes="dim" TextWrapping="Wrap"
+                         Text="Settings auto-save to Pico flash (no app required after setup). Physical BOOTSEL button:  1× Press = Connect / Disconnect Controller   •   2× Press = Switch DualSense ↔ Xbox 360   •   3× Press = Pair New Controller (Share+PS)   •   4× Press = Reset All Bonds   •   Hold 2s = USB Firmware Flash Mode." />
+            </StackPanel>
+          </Border>
         </StackPanel>
       </ScrollViewer>
 

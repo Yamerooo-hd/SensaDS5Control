@@ -1,4 +1,5 @@
 using System.Text;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -21,6 +22,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _logFlushTimer;
     private readonly DispatcherTimer _hotplugTimer;
 
+    private TrayIcon? _trayIcon;
+    private bool _startMinimized;
+    private bool _reallyClosing;
+
     private volatile bool _logDirty;
     private int _uiTelemetryPending;
     private int _hotplugBusy;
@@ -37,15 +42,26 @@ public partial class MainWindow : Window
     private static readonly IBrush DotAmber = new SolidColorBrush(Color.Parse("#F59E0B"));
     private static readonly IBrush DotGray = new SolidColorBrush(Color.Parse("#64748B"));
 
-    public MainWindow() : this(AppSettings.Load()) { }
+    public MainWindow() : this(AppSettings.Load(), false) { }
 
-    public MainWindow(AppSettings settings)
+    public MainWindow(AppSettings settings, bool startMinimized = false)
     {
         _settings = settings;
+        _startMinimized = startMinimized;
         InitializeComponent();
         PopulateStaticCombos();
         ApplySettingsToUi();
         _loadingUi = false;
+
+        InitializeTrayIcon();
+        Opened += (_, _) =>
+        {
+            if (_startMinimized)
+            {
+                _startMinimized = false;
+                Hide();
+            }
+        };
 
         _logFlushTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
         _logFlushTimer.Tick += (_, _) => FlushConsoleLogIfDirty();
@@ -57,10 +73,63 @@ public partial class MainWindow : Window
 
         _pico.ConnectionChanged += OnPicoConnectionChanged;
         _pico.TelemetryReceived += OnTelemetryReceived;
+        _pico.ConfigReceived += OnPicoConfigReceived;
         _pico.LogLineReceived += OnLogReceived;
 
         UpdateMicButtonText();
         _ = PollPicoUsbHotplugAsync();
+    }
+
+    private void InitializeTrayIcon()
+    {
+        var menu = new NativeMenu();
+
+        var openItem = new NativeMenuItem("Open SensaDS5Control");
+        openItem.Click += (_, _) => RestoreFromTray();
+        menu.Items.Add(openItem);
+        menu.Items.Add(new NativeMenuItemSeparator());
+
+        var ds5Item = new NativeMenuItem("Switch to DualSense (054C:0CE6)");
+        ds5Item.Click += (_, _) => Dispatcher.UIThread.Post(() => _ = SwitchUsbIdentityAsync("ds5", "DualSense (054C:0CE6)", 0));
+        menu.Items.Add(ds5Item);
+
+        var x360Item = new NativeMenuItem("Switch to Xbox 360 XInput (1209:DB05)");
+        x360Item.Click += (_, _) => Dispatcher.UIThread.Post(() => _ = SwitchUsbIdentityAsync("x360", "Xbox 360 XInput (1209:DB05)", 1));
+        menu.Items.Add(x360Item);
+        menu.Items.Add(new NativeMenuItemSeparator());
+
+        var exitItem = new NativeMenuItem("Quit SensaDS5Control");
+        exitItem.Click += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            _reallyClosing = true;
+            Close();
+        });
+        menu.Items.Add(exitItem);
+
+        _trayIcon = new TrayIcon
+        {
+            Icon = Icon,
+            ToolTipText = "SensaDS5Control — Cosmic Byte Sensa",
+            Menu = menu,
+            IsVisible = true
+        };
+        _trayIcon.Clicked += (_, _) => RestoreFromTray();
+
+        if (Application.Current != null)
+        {
+            TrayIcon.SetIcons(Application.Current, new TrayIcons { _trayIcon });
+        }
+    }
+
+    private void RestoreFromTray()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            Show();
+            if (WindowState == WindowState.Minimized)
+                WindowState = WindowState.Normal;
+            Activate();
+        });
     }
 
     private void OnNavClick(object? sender, RoutedEventArgs e)
@@ -120,7 +189,12 @@ public partial class MainWindow : Window
         TouchSensLabel.Text = $"{_settings.TouchpadSens:0.0}x";
 
         GyroMouseChk.IsChecked = _settings.GyroMouse;
+        GyroSensSlider.Value = _settings.GyroSens;
+        GyroSensLabel.Text = $"{_settings.GyroSens:0.000}";
         GyroL2Chk.IsChecked = _settings.GyroOnlyOnL2;
+
+        StickDeadzoneSlider.Value = _settings.StickDeadzonePct;
+        StickDeadzoneLabel.Text = $"{_settings.StickDeadzonePct}%";
 
         HapticGainSlider.Value = _settings.HapticGainPct;
         HapticGainLabel.Text = $"{_settings.HapticGainPct}%";
@@ -149,6 +223,12 @@ public partial class MainWindow : Window
 
         SyncMicBtnChk.IsChecked = _settings.SyncControllerMicButton;
         _syncMicButton = _settings.SyncControllerMicButton;
+
+        MinToTrayChk.IsChecked = _settings.MinimizeToTray;
+        bool autostartNow = _platform.GetStartWithWindows();
+        _settings.StartWithWindows = autostartNow;
+        StartWithWinChk.IsChecked = autostartNow;
+
         TokenBox.Text = _settings.GitHubToken;
 
         _mouse.TouchpadMouseEnabled = _settings.TouchpadMouse;
@@ -185,6 +265,16 @@ public partial class MainWindow : Window
     {
         if (sender is Button { Tag: string themeId })
             SelectTheme(themeId);
+    }
+
+    private void OnAppBehaviorChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_loadingUi) return;
+        _settings.MinimizeToTray = MinToTrayChk.IsChecked == true;
+        bool wantStartup = StartWithWinChk.IsChecked == true;
+        _settings.StartWithWindows = wantStartup;
+        _platform.SetStartWithWindows(wantStartup, startMinimized: true);
+        _settings.Save();
     }
 
     private async Task PollPicoUsbHotplugAsync()
@@ -262,6 +352,32 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnPairNewClick(object? sender, RoutedEventArgs e)
+    {
+        if (!_pico.IsConnected) return;
+        _pico.StartPairing();
+        StatusDot.Fill = DotAmber;
+        StatusText.Text = "Pairing Mode Active";
+        SubStatusText.Text = "Hold Share + PS on Sensa controller for 3 seconds...";
+    }
+
+    private void OnForgetBondClick(object? sender, RoutedEventArgs e)
+    {
+        if (!_pico.IsConnected) return;
+        _pico.ForgetAllBonds();
+        StatusDot.Fill = DotAmber;
+        StatusText.Text = "Cleared Bonds — Pairing...";
+        SubStatusText.Text = "Hold Share + PS on Sensa controller to re-pair...";
+    }
+
+    private void OnSaveFlashClick(object? sender, RoutedEventArgs e)
+    {
+        if (!_pico.IsConnected) return;
+        PushSavedProfileToPico();
+        _pico.SaveConfigToFlash();
+        FlashSyncBadgeTxt.Text = "Pico Flash: Saved Standalone Profile";
+    }
+
     private void SetConnectButton(bool isConnectedController, bool connectedToPico)
     {
         ConnectBtn.Classes.Remove("danger");
@@ -286,9 +402,9 @@ public partial class MainWindow : Window
                 SetConnectButton(isConnectedController: false, connectedToPico: true);
                 StatusDot.Fill = DotAmber;
                 StatusText.Text = $"Pico Connected ({portOrError})";
-                SubStatusText.Text = "Checking Sensa Bluetooth connection...";
+                SubStatusText.Text = "Syncing standalone Pico Flash profile...";
                 PortBadgeTxt.Text = $"Port: {portOrError}";
-                PushSavedProfileToPico();
+                FlashSyncBadgeTxt.Text = "Pico Flash: Syncing...";
             }
             else
             {
@@ -303,9 +419,60 @@ public partial class MainWindow : Window
                 DashBridgeInfo.Text = "Bridge: Disconnected";
                 DashBatteryInfo.Text = "Battery: --";
                 DashReportMode.Text = "Input Mode: --";
+                FlashSyncBadgeTxt.Text = "Pico Flash: Offline (standalone active on Pico)";
                 ResetTelemetryMeters();
                 DashControllerDiagram.ResetDisconnected();
                 TesterControllerDiagram.ResetDisconnected();
+            }
+        });
+    }
+
+    private void OnPicoConfigReceived(PicoConfigSample cfg)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (cfg.IsFreshFlash)
+            {
+                PushSavedProfileToPico();
+                _pico.SaveConfigToFlash();
+                FlashSyncBadgeTxt.Text = "Pico Flash: Synced Initial Profile";
+                return;
+            }
+
+            _loadingUi = true;
+            try
+            {
+                _settings.HapticGainPct = Math.Clamp((int)cfg.HapticGainPct, 25, 255);
+                HapticGainSlider.Value = _settings.HapticGainPct;
+                HapticGainLabel.Text = $"{_settings.HapticGainPct}%";
+
+                _settings.ImpulseTriggerMode = Math.Clamp((int)cfg.ImpulseMode, 0, 2);
+                _settings.ImpulseTriggerStrengthPct = Math.Clamp((int)cfg.ImpulseStrengthPct, 0, 100);
+                ImpulseModeCombo.SelectedIndex = _settings.ImpulseTriggerMode;
+                ImpulseStrengthSlider.Value = _settings.ImpulseTriggerStrengthPct;
+                ImpulseStrengthLabel.Text = $"{_settings.ImpulseTriggerStrengthPct}%";
+
+                _settings.StickDeadzonePct = Math.Clamp((int)cfg.StickDeadzonePct, 0, 25);
+                StickDeadzoneSlider.Value = _settings.StickDeadzonePct;
+                StickDeadzoneLabel.Text = $"{_settings.StickDeadzonePct}%";
+
+                _settings.LedOverride = cfg.LedOverride;
+                _settings.LedR = cfg.LedR;
+                _settings.LedG = cfg.LedG;
+                _settings.LedB = cfg.LedB;
+                LedRSlider.Value = cfg.LedR;
+                LedGSlider.Value = cfg.LedG;
+                LedBSlider.Value = cfg.LedB;
+                UpdateLedPreview();
+
+                _settings.MicLedMode = (byte)Math.Clamp((int)cfg.MicLedMode, 0, 2);
+                _settings.Save();
+                UpdateUsbIdentityIndicators(cfg.UsbMode);
+                FlashSyncBadgeTxt.Text = "Pico Flash: Loaded Standalone Profile";
+            }
+            finally
+            {
+                _loadingUi = false;
             }
         });
     }
@@ -325,8 +492,10 @@ public partial class MainWindow : Window
     {
         _pico.SetHapticGain(_settings.HapticGainPct);
         _pico.SetImpulseTriggers(_settings.ImpulseTriggerMode, _settings.ImpulseTriggerStrengthPct);
+        _pico.SetStickDeadzone(_settings.StickDeadzonePct);
         _pico.SetMicLed(_settings.MicLedMode);
         if (_settings.LedOverride) _pico.SetLed(_settings.LedR, _settings.LedG, _settings.LedB);
+        else _pico.SetLedAuto();
         _pico.SetTrigger("l", _settings.LeftTriggerKind, _settings.LeftStart, _settings.LeftEnd, _settings.LeftForce, _settings.LeftFreq);
         _pico.SetTrigger("r", _settings.RightTriggerKind, _settings.RightStart, _settings.RightEnd, _settings.RightForce, _settings.RightFreq);
     }
@@ -354,13 +523,9 @@ public partial class MainWindow : Window
     private void OnTelemetryReceived(TelemetrySample s)
     {
         if (s.BtControllerReady)
-        {
             _mouse.Process(s, _platform);
-        }
         else
-        {
             _mouse.ReleaseAllButtons(_platform);
-        }
 
         bool micPressedEdge = s.BtControllerReady && _syncMicButton && s.MicMuteBtn && !_wasMicBtn;
         _wasMicBtn = s.BtControllerReady && s.MicMuteBtn;
@@ -375,7 +540,6 @@ public partial class MainWindow : Window
 
             bool btNow = s.BtControllerReady && DateTime.UtcNow >= _ignoreBtReadyUntilUtc;
             if (!s.BtControllerReady) _ignoreBtReadyUntilUtc = DateTime.MinValue;
-            if (btNow && !_wasBtControllerReady) PushSavedProfileToPico();
             _wasBtControllerReady = btNow;
 
             if (_lastUsbMode != s.UsbMode)
@@ -534,12 +698,26 @@ public partial class MainWindow : Window
 
         _mouse.GyroMouseEnabled = GyroMouseChk.IsChecked == true;
         _mouse.GyroOnlyOnL2 = GyroL2Chk.IsChecked == true;
+        _mouse.GyroSensitivity = GyroSensSlider.Value;
+        GyroSensLabel.Text = $"{GyroSensSlider.Value:0.000}";
 
         _settings.TouchpadMouse = tm;
         _settings.TouchpadSens = TouchSensSlider.Value;
         _settings.GyroMouse = _mouse.GyroMouseEnabled;
         _settings.GyroOnlyOnL2 = _mouse.GyroOnlyOnL2;
+        _settings.GyroSens = GyroSensSlider.Value;
         _settings.Save();
+    }
+
+    private void OnDeadzoneChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loadingUi) return;
+        int pct = Math.Clamp((int)Math.Round(StickDeadzoneSlider.Value), 0, 25);
+        StickDeadzoneLabel.Text = $"{pct}%";
+        _settings.StickDeadzonePct = pct;
+        _settings.Save();
+        _pico.SetStickDeadzone(pct);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
 
     private void OnCalibrateGyroClick(object? sender, RoutedEventArgs e) => _mouse.StartGyroCalibration();
@@ -578,6 +756,7 @@ public partial class MainWindow : Window
         _settings.MicLedMode = mode;
         _settings.Save();
         _pico.SetMicLed(mode);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
 
     private void OnHapticGainChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -588,6 +767,7 @@ public partial class MainWindow : Window
         _settings.HapticGainPct = val;
         _settings.Save();
         _pico.SetHapticGain(val);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
 
     private void OnTestCrispTapClick(object? s, RoutedEventArgs e) => _pico.TriggerTestWave("36", 125, 160, 300);
@@ -609,6 +789,7 @@ public partial class MainWindow : Window
         _settings.ImpulseTriggerStrengthPct = strength;
         _settings.Save();
         _pico.SetImpulseTriggers(mode, strength);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
 
     private void OnTestImpulseTriggersClick(object? s, RoutedEventArgs e)
@@ -645,6 +826,7 @@ public partial class MainWindow : Window
         _settings.LeftFreq = (byte)LFreqSlider.Value;
         _settings.Save();
         _pico.SetTrigger("l", _settings.LeftTriggerKind, _settings.LeftStart, _settings.LeftEnd, _settings.LeftForce, _settings.LeftFreq);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
 
     private void OnAutoLeftTriggerClick(object? s, RoutedEventArgs e)
@@ -662,6 +844,7 @@ public partial class MainWindow : Window
         _settings.RightFreq = (byte)RFreqSlider.Value;
         _settings.Save();
         _pico.SetTrigger("r", _settings.RightTriggerKind, _settings.RightStart, _settings.RightEnd, _settings.RightForce, _settings.RightFreq);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
 
     private void OnAutoRightTriggerClick(object? s, RoutedEventArgs e)
@@ -691,10 +874,11 @@ public partial class MainWindow : Window
         _settings.LedR = r; _settings.LedG = g; _settings.LedB = b;
         _settings.Save();
         _pico.SetLed(r, g, b);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
 
     private void OnApplyLedClick(object? s, RoutedEventArgs e) => ApplyLed((byte)LedRSlider.Value, (byte)LedGSlider.Value, (byte)LedBSlider.Value);
-    private void OnAutoLedClick(object? s, RoutedEventArgs e) { _settings.LedOverride = false; _settings.Save(); _pico.SetLedAuto(); }
+    private void OnAutoLedClick(object? s, RoutedEventArgs e) { _settings.LedOverride = false; _settings.Save(); _pico.SetLedAuto(); FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved"; }
     private void OnPresetPsBlueClick(object? s, RoutedEventArgs e) => ApplyLed(0, 67, 220);
     private void OnPresetCyanClick(object? s, RoutedEventArgs e) => ApplyLed(0, 180, 255);
     private void OnPresetRedClick(object? s, RoutedEventArgs e) => ApplyLed(255, 20, 20);
@@ -779,6 +963,7 @@ public partial class MainWindow : Window
                 CreateNoWindow = true,
                 UseShellExecute = false
             });
+            _reallyClosing = true;
             Close();
         }
         catch (Exception ex)
@@ -844,8 +1029,24 @@ public partial class MainWindow : Window
         _pico.SendCommand(txt);
     }
 
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (!_reallyClosing && _settings.MinimizeToTray)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+        base.OnClosing(e);
+    }
+
     protected override void OnClosed(EventArgs e)
     {
+        if (_trayIcon != null)
+        {
+            _trayIcon.IsVisible = false;
+            _trayIcon.Dispose();
+        }
         _hotplugTimer.Stop();
         _logFlushTimer.Stop();
         _mouse.ReleaseAllButtons(_platform);

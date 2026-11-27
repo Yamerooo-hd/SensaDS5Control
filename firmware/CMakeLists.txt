@@ -55,6 +55,7 @@ add_executable(sensa-bridge
     src/sensa_bt.cpp
     src/sensa_console.cpp
     src/sensa_dsp.cpp
+    src/sensa_flash.cpp
     src/sensa_usb.cpp
     src/usb_descriptors.c
     src/ram_mem.c
@@ -105,8 +106,10 @@ target_include_directories(sensa-bridge PUBLIC
 
 target_link_libraries(sensa-bridge
     pico_stdlib
+    hardware_flash
     hardware_watchdog
     hardware_timer
+    pico_flash
     pico_rand
     pico_btstack_classic
     pico_cyw43_arch_poll

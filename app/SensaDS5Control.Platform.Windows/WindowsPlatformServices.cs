@@ -1,3 +1,4 @@
+using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Text;
 using SensaDS5Control.Core;
@@ -98,6 +99,41 @@ public sealed class WindowsPlatformServices : IPlatformServices
                 var guid = Guid.Empty;
                 vol.SetMute(muted, ref guid);
                 Marshal.ReleaseComObject(vol);
+            }
+        }
+        catch { }
+    }
+
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunValueName = "SensaDS5Control";
+
+    public bool GetStartWithWindows()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
+            return key?.GetValue(RunValueName) is string s && !string.IsNullOrWhiteSpace(s);
+        }
+        catch { return false; }
+    }
+
+    public void SetStartWithWindows(bool enabled, bool startMinimized = true)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            if (key == null) return;
+            if (enabled)
+            {
+                var exe = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(exe) && exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    key.SetValue(RunValueName, startMinimized ? $"\"{exe}\" --minimized" : $"\"{exe}\"");
+                }
+            }
+            else
+            {
+                key.DeleteValue(RunValueName, throwOnMissingValue: false);
             }
         }
         catch { }

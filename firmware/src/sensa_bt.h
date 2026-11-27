@@ -31,6 +31,13 @@ void bt_send_set_feature(uint8_t report_id, uint8_t const *buf, uint16_t len);
 void bt_debug_dump();
 void bt_trigger_unlock_sequence(uint8_t mode);
 
+void bt_export_persisted_state(
+    uint8_t &led_override, uint8_t &led_r, uint8_t &led_g, uint8_t &led_b, uint8_t &mic_led_mode,
+    uint8_t &trig_r_en, uint8_t trig_r[11], uint8_t &trig_l_en, uint8_t trig_l[11]);
+void bt_import_persisted_state(
+    bool led_override, uint8_t led_r, uint8_t led_g, uint8_t led_b, uint8_t mic_led_mode,
+    bool trig_r_en, uint8_t const trig_r[11], bool trig_l_en, uint8_t const trig_l[11]);
+
 } // namespace sensa
 
 #endif

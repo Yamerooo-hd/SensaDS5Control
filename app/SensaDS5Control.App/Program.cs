@@ -25,6 +25,7 @@ internal static class Program
             nint existing = FindWindow(null, "SensaDS5Control — Cosmic Byte Sensa Wireless Suite");
             if (existing != nint.Zero)
             {
+                ShowWindow(existing, 5); // SW_SHOW (un-hides tray-minimized window)
                 ShowWindow(existing, 9); // SW_RESTORE
                 SetForegroundWindow(existing);
             }

@@ -5,6 +5,7 @@
 #include "usb_descriptors.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -313,9 +314,32 @@ void usb_set_bt_ready(bool ready) {
     }
 }
 
+void apply_radial_deadzone(uint8_t &ax, uint8_t &ay, uint8_t dz_pct) {
+    if (dz_pct == 0) return;
+    float dx = static_cast<float>(ax) - 128.0f;
+    float dy = static_cast<float>(ay) - 128.0f;
+    float mag = std::sqrt(dx * dx + dy * dy);
+    float dz_rad = static_cast<float>(dz_pct) * 1.27f;
+    if (mag <= dz_rad || mag < 0.001f) {
+        ax = 128;
+        ay = 128;
+        return;
+    }
+    float norm_mag = std::min(127.0f, ((mag - dz_rad) * 127.0f) / (127.0f - dz_rad));
+    float scale = norm_mag / mag;
+    int ix = static_cast<int>(std::lround(128.0f + dx * scale));
+    int iy = static_cast<int>(std::lround(128.0f + dy * scale));
+    ax = static_cast<uint8_t>(std::clamp(ix, 0, 255));
+    ay = static_cast<uint8_t>(std::clamp(iy, 0, 255));
+}
+
 void usb_submit_bt_input_report(uint8_t const *report_63b, uint16_t len) {
     if (!report_63b || len < sizeof(latest_input_report)) return;
     std::memcpy(latest_input_report, report_63b, sizeof(latest_input_report));
+    if (g_stick_deadzone_pct > 0) {
+        apply_radial_deadzone(latest_input_report[0], latest_input_report[1], g_stick_deadzone_pct);
+        apply_radial_deadzone(latest_input_report[2], latest_input_report[3], g_stick_deadzone_pct);
+    }
     input_dirty = true;
     try_send_hid_input();
 }

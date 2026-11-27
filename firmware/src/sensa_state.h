@@ -134,6 +134,7 @@ extern HapticMode g_haptic_mode;
 extern DspConfig g_dsp_config;
 extern Telemetry g_telemetry;
 extern HostOutputState g_host_output;
+extern uint8_t g_stick_deadzone_pct;
 
 // CRC32 with Sony BT seeds (0xA2 for reports, 0x53 for SET_FEATURE)
 inline constexpr uint32_t crc32_table_entry(uint32_t index) {
