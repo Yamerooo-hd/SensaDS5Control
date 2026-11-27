@@ -608,6 +608,7 @@ void reset_session_state() {
     g_telemetry.bt_acl_connected = false;
     g_telemetry.bt_control_ready = false;
     g_telemetry.bt_interrupt_ready = false;
+    g_telemetry.bt_connecting = false;
     usb_set_bt_ready(false);
 }
 
@@ -927,6 +928,7 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
 
         case HCI_EVENT_CONNECTION_COMPLETE: {
             outbound_connecting = false;
+            g_telemetry.bt_connecting = false;
             uint8_t st = hci_event_connection_complete_get_status(packet);
             if (st != 0) {
                 console_printf("[BT] ACL connect failed status=0x%02X\n", st);
@@ -1038,6 +1040,7 @@ void initiate_bonded_connection(char const *tag) {
     bd_addr_copy(peer_addr, bonded_addr);
     peer_addr_valid = true;
     outbound_connecting = true;
+    g_telemetry.bt_connecting = true;
     uint8_t st = hci_send_cmd(
         &hci_create_connection,
         bonded_addr,
@@ -1114,6 +1117,7 @@ void bt_disconnect_now() {
     if (outbound_connecting && peer_addr_valid) {
         hci_send_cmd(&hci_create_connection_cancel, peer_addr);
         outbound_connecting = false;
+        g_telemetry.bt_connecting = false;
     }
     if (acl_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(acl_handle);

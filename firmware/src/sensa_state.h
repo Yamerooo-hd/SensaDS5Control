@@ -99,6 +99,7 @@ struct Telemetry {
     bool bt_control_ready = false;
     bool bt_interrupt_ready = false;
     bool bt_pairing_active = false;
+    bool bt_connecting = false;
     bool bt_has_bonded_key = false;
     uint8_t bt_addr[6]{};
     char bt_name[48]{};

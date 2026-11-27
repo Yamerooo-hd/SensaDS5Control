@@ -84,20 +84,40 @@ void poll_bootsel_and_led(uint32_t now_us) {
         }
     }
 
+    constexpr uint32_t kIdleBlinkTimeoutUs = 12000000u; // Stop blinking after 12s while waiting
     static uint32_t last_led_us = 0;
+    static uint32_t idle_blink_until_us = 0;
     static bool led_on = false;
-    uint32_t period_us = g_telemetry.bt_interrupt_ready ? 0
-                       : g_telemetry.bt_pairing_active ? 150000u
-                                                       : 700000u;
-    if (period_us == 0) {
+    static bool led_init = false;
+    static bool was_ready = false;
+    static bool was_connecting = false;
+
+    bool ready = g_telemetry.bt_interrupt_ready;
+    bool pairing = g_telemetry.bt_pairing_active;
+    bool connecting = g_telemetry.bt_connecting;
+
+    if (!led_init || (was_ready && !ready) || (!was_connecting && connecting)) {
+        led_init = true;
+        idle_blink_until_us = now_us + kIdleBlinkTimeoutUs;
+    }
+    was_ready = ready;
+    was_connecting = connecting;
+
+    if (ready) {
         if (!led_on) {
             led_on = true;
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, true);
         }
-    } else if (static_cast<uint32_t>(now_us - last_led_us) >= period_us) {
-        last_led_us = now_us;
-        led_on = !led_on;
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
+    } else if (pairing || static_cast<int32_t>(idle_blink_until_us - now_us) > 0) {
+        uint32_t period_us = pairing ? 150000u : 700000u;
+        if (static_cast<uint32_t>(now_us - last_led_us) >= period_us) {
+            last_led_us = now_us;
+            led_on = !led_on;
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, led_on);
+        }
+    } else if (led_on) {
+        led_on = false;
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, false);
     }
 }
 
