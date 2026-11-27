@@ -329,13 +329,13 @@
               <StackPanel Spacing="8">
                 <TextBlock Classes="hdr" Text="Left Trigger (L2)" />
                 <ComboBox x:Name="LeftTrigCombo" SelectedIndex="0" HorizontalAlignment="Stretch" />
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Start Position (0–255)" Classes="dim" /><TextBlock x:Name="LStartValTxt" Text="40" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Start Position (0–255)" Classes="dim" /><TextBlock Grid.Column="1" x:Name="LStartValTxt" Text="40" Classes="dim" FontWeight="SemiBold" /></Grid>
                 <Slider x:Name="LStartSlider" Minimum="0" Maximum="255" Value="40" ValueChanged="OnTriggerSliderChanged" />
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="End Position (0–255)" Classes="dim" /><TextBlock x:Name="LEndValTxt" Text="180" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="End Position (0–255)" Classes="dim" /><TextBlock Grid.Column="1" x:Name="LEndValTxt" Text="180" Classes="dim" FontWeight="SemiBold" /></Grid>
                 <Slider x:Name="LEndSlider" Minimum="0" Maximum="255" Value="180" ValueChanged="OnTriggerSliderChanged" />
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Force / Strength (0–255)" Classes="dim" /><TextBlock x:Name="LForceValTxt" Text="200" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Force / Strength (0–255)" Classes="dim" /><TextBlock Grid.Column="1" x:Name="LForceValTxt" Text="200" Classes="dim" FontWeight="SemiBold" /></Grid>
                 <Slider x:Name="LForceSlider" Minimum="0" Maximum="255" Value="200" ValueChanged="OnTriggerSliderChanged" />
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" /><TextBlock x:Name="LFreqValTxt" Text="20 Hz" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" /><TextBlock Grid.Column="1" x:Name="LFreqValTxt" Text="20 Hz" Classes="dim" FontWeight="SemiBold" /></Grid>
                 <Slider x:Name="LFreqSlider" Minimum="5" Maximum="60" Value="20" ValueChanged="OnTriggerSliderChanged" />
                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
                   <Button Content="Apply L2" Click="OnApplyLeftTriggerClick" Classes="accent" />
@@ -348,13 +348,13 @@
               <StackPanel Spacing="8">
                 <TextBlock Classes="hdr" Text="Right Trigger (R2)" />
                 <ComboBox x:Name="RightTrigCombo" SelectedIndex="0" HorizontalAlignment="Stretch" />
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Start Position (0–255)" Classes="dim" /><TextBlock x:Name="RStartValTxt" Text="60" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Start Position (0–255)" Classes="dim" /><TextBlock Grid.Column="1" x:Name="RStartValTxt" Text="60" Classes="dim" FontWeight="SemiBold" /></Grid>
                 <Slider x:Name="RStartSlider" Minimum="0" Maximum="255" Value="60" ValueChanged="OnTriggerSliderChanged" />
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="End Position (0–255)" Classes="dim" /><TextBlock x:Name="REndValTxt" Text="170" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="End Position (0–255)" Classes="dim" /><TextBlock Grid.Column="1" x:Name="REndValTxt" Text="170" Classes="dim" FontWeight="SemiBold" /></Grid>
                 <Slider x:Name="REndSlider" Minimum="0" Maximum="255" Value="170" ValueChanged="OnTriggerSliderChanged" />
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Force / Strength (0–255)" Classes="dim" /><TextBlock x:Name="RForceValTxt" Text="220" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Force / Strength (0–255)" Classes="dim" /><TextBlock Grid.Column="1" x:Name="RForceValTxt" Text="220" Classes="dim" FontWeight="SemiBold" /></Grid>
                 <Slider x:Name="RForceSlider" Minimum="0" Maximum="255" Value="220" ValueChanged="OnTriggerSliderChanged" />
-                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" /><TextBlock x:Name="RFreqValTxt" Text="25 Hz" Classes="dim" FontWeight="SemiBold" /></Grid>
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Vibration Freq (5–60 Hz)" Classes="dim" /><TextBlock Grid.Column="1" x:Name="RFreqValTxt" Text="25 Hz" Classes="dim" FontWeight="SemiBold" /></Grid>
                 <Slider x:Name="RFreqSlider" Minimum="5" Maximum="60" Value="25" ValueChanged="OnTriggerSliderChanged" />
                 <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
                   <Button Content="Apply R2" Click="OnApplyRightTriggerClick" Classes="accent" />

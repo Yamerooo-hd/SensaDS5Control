@@ -147,7 +147,19 @@ public static class ThemeManager
         var theme = FindById(themeId);
         app.RequestedThemeVariant = theme.IsLight ? ThemeVariant.Light : ThemeVariant.Dark;
 
-        void SetBrush(string key, string hex) => app.Resources[key] = new SolidColorBrush(Color.Parse(hex));
+        void SetBrush(string key, string hex)
+        {
+            var col = Color.Parse(hex);
+            if (app.Resources.TryGetValue(key, out var existing) && existing is SolidColorBrush mutableBrush)
+                mutableBrush.Color = col;
+            else
+                app.Resources[key] = new SolidColorBrush(col);
+        }
+
+        var accentCol = Color.Parse(theme.AccentHex);
+        app.Resources["SystemAccentColor"] = accentCol;
+        app.Resources["SystemAccentColorDark1"] = Color.Parse(theme.AccentHoverHex);
+        app.Resources["SystemAccentColorLight1"] = accentCol;
 
         SetBrush("AppBgBrush", theme.AppBg);
         SetBrush("SidebarBgBrush", theme.SidebarBg);
@@ -170,5 +182,22 @@ public static class ThemeManager
         SetBrush("SuccessBgBrush", theme.SuccessBgHex);
         SetBrush("InputSurfaceBgBrush", theme.InputSurfaceBg);
         SetBrush("ConsoleBgBrush", theme.ConsoleBg);
+
+        // Sync FluentTheme built-in accent controls (Sliders, ProgressBars, Accent Buttons, CheckBoxes, Toggles)
+        SetBrush("AccentButtonBackground", theme.AccentHex);
+        SetBrush("AccentButtonBackgroundPointerOver", theme.AccentHoverHex);
+        SetBrush("AccentButtonBackgroundPressed", theme.AccentHoverHex);
+        SetBrush("AccentButtonForeground", theme.AccentFgHex);
+        SetBrush("SliderTrackValueFill", theme.AccentHex);
+        SetBrush("SliderTrackValueFillPointerOver", theme.AccentHoverHex);
+        SetBrush("SliderTrackValueFillPressed", theme.AccentHoverHex);
+        SetBrush("SliderThumbBackground", theme.NavActiveFg);
+        SetBrush("SliderThumbBackgroundPointerOver", theme.AccentHex);
+        SetBrush("SliderThumbBackgroundPressed", theme.AccentHoverHex);
+        SetBrush("ProgressBarForeground", theme.NavActiveFg);
+        SetBrush("CheckBoxCheckBackgroundFillChecked", theme.AccentHex);
+        SetBrush("CheckBoxCheckBackgroundFillCheckedPointerOver", theme.AccentHoverHex);
+        SetBrush("ToggleButtonBackgroundChecked", theme.AccentHex);
+        SetBrush("ToggleButtonBackgroundCheckedPointerOver", theme.AccentHoverHex);
     }
 }
