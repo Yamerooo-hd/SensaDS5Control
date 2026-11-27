@@ -49,7 +49,14 @@ uint32_t test_spk_last_blk_us = 0;
 float test_spk_phase = 0.0f;
 #if defined(SENSA_HAS_OPUS) && SENSA_HAS_OPUS
 OpusEncoder *spk_opus_enc = nullptr;
+OpusDecoder *mic_opus_dec = nullptr;
 #endif
+constexpr uint16_t kMicRingCap = 2048;
+int16_t mic_pcm_ring[kMicRingCap]{};
+uint16_t mic_ring_wr = 0;
+uint16_t mic_ring_rd = 0;
+int16_t mic_pcm_decode_buf[480]{};
+uint32_t last_mic_tx_us = 0;
 
 // Peak telemetry (1000 = 100.0%, i.e., tenths of percent)
 uint16_t cur_peak_audio_l = 0;
@@ -304,6 +311,30 @@ void dsp_init() {
             spk_opus_enc = nullptr;
         }
     }
+    if (mic_opus_dec == nullptr) {
+        int err = 0;
+        mic_opus_dec = opus_decoder_create(48000, 1, &err);
+        if (err != OPUS_OK) mic_opus_dec = nullptr;
+    }
+#endif
+}
+
+void dsp_push_bt_mic_opus(uint8_t const *opus_bytes, uint16_t len) {
+#if defined(SENSA_HAS_OPUS) && SENSA_HAS_OPUS
+    if (mic_opus_dec == nullptr || opus_bytes == nullptr || len < 20) return;
+    int decoded = opus_decode(mic_opus_dec, opus_bytes, static_cast<opus_int32>(len), mic_pcm_decode_buf, 480, 0);
+    if (decoded <= 0) return;
+    for (int i = 0; i < decoded; ++i) {
+        uint16_t next = static_cast<uint16_t>((mic_ring_wr + 1u) % kMicRingCap);
+        if (next == mic_ring_rd) {
+            mic_ring_rd = static_cast<uint16_t>((mic_ring_rd + 1u) % kMicRingCap);
+        }
+        mic_pcm_ring[mic_ring_wr] = mic_pcm_decode_buf[i];
+        mic_ring_wr = next;
+    }
+#else
+    (void)opus_bytes;
+    (void)len;
 #endif
 }
 
@@ -401,12 +432,29 @@ bool dsp_take_haptic_block(int8_t out_block[64], HapticMode &override_proto) {
 void dsp_poll() {
     uint32_t now_us = time_us_32();
 
-    // Feed USB Mic TX endpoint when host is reading mic
+    // Feed USB Mic TX endpoint at 1 ms / 48-sample pace when host is reading mic
     if (g_telemetry.usb_mic_streaming && tud_inited()) {
-        tu_fifo_t *in_ff = tud_audio_n_get_ep_in_ff(0);
-        if (in_ff != nullptr && tu_fifo_remaining(in_ff) >= sizeof(usb_mic_zeros)) {
-            tud_audio_n_write(0, usb_mic_zeros, sizeof(usb_mic_zeros));
+        if (last_mic_tx_us == 0) last_mic_tx_us = now_us;
+        if (static_cast<uint32_t>(now_us - last_mic_tx_us) >= 1000u) {
+            last_mic_tx_us = now_us;
+            tu_fifo_t *in_ff = tud_audio_n_get_ep_in_ff(0);
+            if (in_ff != nullptr && tu_fifo_remaining(in_ff) >= sizeof(usb_mic_zeros)) {
+                int16_t tx_chunk[48]{};
+                uint16_t avail = static_cast<uint16_t>((mic_ring_wr + kMicRingCap - mic_ring_rd) % kMicRingCap);
+                if (avail >= 48) {
+                    for (int i = 0; i < 48; ++i) {
+                        tx_chunk[i] = mic_pcm_ring[mic_ring_rd];
+                        mic_ring_rd = static_cast<uint16_t>((mic_ring_rd + 1u) % kMicRingCap);
+                    }
+                    tud_audio_n_write(0, tx_chunk, sizeof(tx_chunk));
+                } else {
+                    tud_audio_n_write(0, usb_mic_zeros, sizeof(usb_mic_zeros));
+                }
+            }
         }
+    } else {
+        last_mic_tx_us = 0;
+        mic_ring_rd = mic_ring_wr;
     }
 
     // Drain incoming 4ch 48kHz PCM from USB Audio OUT

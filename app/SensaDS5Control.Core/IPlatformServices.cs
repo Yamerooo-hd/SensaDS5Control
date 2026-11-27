@@ -26,5 +26,7 @@ public interface IPlatformServices
     void SetSystemMicMuted(bool muted);
     bool GetStartWithWindows();
     void SetStartWithWindows(bool enabled, bool startMinimized = true);
+    string? GetForegroundProcessName();
+    void OpenSoundSettings();
     Task<string> FlashUf2ToPicoAsync(byte[] uf2Bytes, string uf2FileName, Action? sendBootselCommand, IProgress<string>? status, CancellationToken ct);
 }

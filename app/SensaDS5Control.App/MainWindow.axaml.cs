@@ -23,6 +23,13 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _hotplugTimer;
 
     private TrayIcon? _trayIcon;
+    private readonly DispatcherTimer _profileTimer = new() { Interval = TimeSpan.FromMilliseconds(1500) };
+    private string? _lastForegroundProc;
+    private bool _circTesting;
+    private readonly double[] _circMaxL = new double[16];
+    private readonly double[] _circMaxR = new double[16];
+    private readonly bool[] _circHitL = new bool[16];
+    private readonly bool[] _circHitR = new bool[16];
     private CancellationTokenSource? _fwActionCts;
     private bool _startMinimized;
     private bool _reallyClosing;
@@ -56,6 +63,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         PopulateStaticCombos();
         ApplySettingsToUi();
+        _profileTimer.Tick += (_, _) => CheckForegroundProfileAutoSwitch();
+        _profileTimer.Start();
+        _ = CheckLatestAppReleaseAsync();
         _loadingUi = false;
 
         FwBundledBadgeTxt.Text = $"Bundled FW: v{BundledFirmware.Version}";
@@ -213,6 +223,27 @@ public partial class MainWindow : Window
             "Only While Trigger Pulled"
         };
 
+        GyroActivationCombo.ItemsSource = new[]
+        {
+            "Hold L2 to Aim",
+            "Hold L1 to Aim",
+            "Always Active",
+        };
+        StickCurveCombo.ItemsSource = new[]
+        {
+            "Linear (Standard 1:1)",
+            "Precision (Fine Center)",
+            "Aggressive (Fast Ramp)",
+        };
+        IdleSleepCombo.ItemsSource = new[]
+        {
+            "Off (Never Sleep)",
+            "5 Minutes",
+            "10 Minutes (Default)",
+            "15 Minutes",
+            "30 Minutes",
+        };
+        RefreshProfileCombo();
         SidebarThemeCombo.ItemsSource = ThemeManager.Presets.Select(t => t.DisplayName).ToArray();
     }
 
@@ -231,7 +262,20 @@ public partial class MainWindow : Window
         GyroMouseChk.IsChecked = _settings.GyroMouse;
         GyroSensSlider.Value = _settings.GyroSens;
         GyroSensLabel.Text = $"{_settings.GyroSens:0.000}";
-        GyroL2Chk.IsChecked = _settings.GyroOnlyOnL2;
+        GyroInvertYChk.IsChecked = _settings.GyroInvertY;
+        GyroActivationCombo.SelectedIndex = Math.Clamp(_settings.GyroActivationMode, 0, 2);
+        TouchTapChk.IsChecked = _settings.TouchpadTapToClick;
+        _mouse.GyroInvertY = _settings.GyroInvertY;
+        _mouse.GyroActivationMode = Math.Clamp(_settings.GyroActivationMode, 0, 2);
+        _mouse.GyroOnlyOnL2 = _mouse.GyroActivationMode == 0;
+        _mouse.TouchpadTapToClick = _settings.TouchpadTapToClick;
+        StickCurveCombo.SelectedIndex = Math.Clamp(_settings.StickCurve, 0, 2);
+        StickOuterDzSlider.Value = Math.Clamp(_settings.StickOuterDzPct, 0, 15);
+        StickOuterDzLabel.Text = $"{Math.Clamp(_settings.StickOuterDzPct, 0, 15)}%";
+        StickAntiDzSlider.Value = Math.Clamp(_settings.StickAntiDzPct, 0, 20);
+        StickAntiDzLabel.Text = $"{Math.Clamp(_settings.StickAntiDzPct, 0, 20)}%";
+        IdleSleepCombo.SelectedIndex = _settings.IdleSleepMin switch { 0 => 0, <= 5 => 1, <= 10 => 2, <= 15 => 3, _ => 4 };
+        AutoSwitchProfileChk.IsChecked = _settings.AutoSwitchProfiles;
 
         StickDeadzoneSlider.Value = _settings.StickDeadzonePct;
         StickDeadzoneLabel.Text = $"{_settings.StickDeadzonePct}%";
@@ -611,11 +655,15 @@ public partial class MainWindow : Window
                 SubStatusText.Text = string.IsNullOrEmpty(portOrError) ? "Waiting for Pico USB..." : portOrError;
                 PortBadgeTxt.Text = "USB: Offline";
                 BatteryBadgeTxt.Text = "Bat: --";
+                BatteryBadgeTxt.Foreground = Brush.Parse("#94A3B8");
                 DashBridgeInfo.Text = "Bridge: Disconnected";
                 DashBatteryInfo.Text = "Battery: --";
                 DashReportMode.Text = "Input Mode: --";
                 FlashSyncBadgeTxt.Text = "Pico Flash: Offline (standalone active on Pico)";
                 PairingLiveStateTxt.Text = "Pico Offline";
+                TesterRateTxt.Text = "Link Rate: BT Rx -- Hz | USB Target -- Hz";
+                SpeakerStreamBadgeTxt.Text = "USB Audio Stream: Idle";
+                if (_trayIcon != null) _trayIcon.ToolTipText = "SensaDS5Control — Pico Offline";
                 ResetTelemetryMeters();
                 DashControllerDiagram.ResetDisconnected();
                 TesterControllerDiagram.ResetDisconnected();
@@ -666,6 +714,17 @@ public partial class MainWindow : Window
 
                 _settings.ImpulseTriggerMode = Math.Clamp((int)cfg.ImpulseMode, 0, 2);
                 _settings.ImpulseTriggerStrengthPct = Math.Clamp((int)cfg.ImpulseStrengthPct, 0, 100);
+                _settings.IdleSleepMin = cfg.IdleSleepMin;
+                _settings.StickCurve = cfg.StickCurve;
+                _settings.StickOuterDzPct = cfg.StickOuterDzPct;
+                _settings.StickAntiDzPct = cfg.StickAntiDzPct;
+                _settings.Save();
+                IdleSleepCombo.SelectedIndex = _settings.IdleSleepMin switch { 0 => 0, <= 5 => 1, <= 10 => 2, <= 15 => 3, _ => 4 };
+                StickCurveCombo.SelectedIndex = Math.Clamp(_settings.StickCurve, 0, 2);
+                StickOuterDzSlider.Value = Math.Clamp(_settings.StickOuterDzPct, 0, 15);
+                StickOuterDzLabel.Text = $"{Math.Clamp(_settings.StickOuterDzPct, 0, 15)}%";
+                StickAntiDzSlider.Value = Math.Clamp(_settings.StickAntiDzPct, 0, 20);
+                StickAntiDzLabel.Text = $"{Math.Clamp(_settings.StickAntiDzPct, 0, 20)}%";
                 ImpulseModeCombo.SelectedIndex = _settings.ImpulseTriggerMode;
                 ImpulseStrengthSlider.Value = _settings.ImpulseTriggerStrengthPct;
                 ImpulseStrengthLabel.Text = $"{_settings.ImpulseTriggerStrengthPct}%";
@@ -721,6 +780,8 @@ public partial class MainWindow : Window
         _pico.SetHapticGain(_settings.HapticGainPct);
         _pico.SetImpulseTriggers(_settings.ImpulseTriggerMode, _settings.ImpulseTriggerStrengthPct);
         _pico.SetStickDeadzone(_settings.StickDeadzonePct);
+        _pico.SetStickTuning(_settings.StickCurve, _settings.StickOuterDzPct, _settings.StickAntiDzPct);
+        _pico.SetIdleSleep(_settings.IdleSleepMin);
         _pico.SetPollRate(_settings.UsbPollRateHz);
         _pico.SetSpeakerVolume(_settings.SpeakerVolumePct);
         _pico.SetSpeakerGain(_settings.SpeakerGain);
@@ -793,7 +854,17 @@ public partial class MainWindow : Window
             StatusText.Text = btNow ? $"Sensa Active ({usbShort})" : "Pico Ready — Turn on Sensa";
             PortBadgeTxt.Text = $"{_pico.ActivePortName ?? "USB"} • {usbShort}";
             string chgTag = s.ChargingState != 0 ? " ⚡" : "";
-            BatteryBadgeTxt.Text = btNow ? (s.FullMode0x31 ? $"Bat: {s.BatteryPct}%{chgTag}" : "Short 0x01") : "BT Idle";
+            bool lowBat = btNow && s.FullMode0x31 && s.ChargingState == 0 && s.BatteryPct <= 10;
+            BatteryBadgeTxt.Text = btNow ? (s.FullMode0x31 ? (lowBat ? $"Bat: {s.BatteryPct}% LOW!" : $"Bat: {s.BatteryPct}%{chgTag}") : "Short 0x01") : "BT Idle";
+            BatteryBadgeTxt.Foreground = lowBat ? Brush.Parse("#F87171") : Brush.Parse("#CBD5E1");
+            if (_trayIcon != null)
+            {
+                _trayIcon.ToolTipText = btNow && s.FullMode0x31
+                    ? $"SensaDS5Control — {usbShort} • Bat {s.BatteryPct}%{(lowBat ? " (LOW!)" : chgTag)}"
+                    : $"SensaDS5Control — {usbShort} • {(btNow ? "Active" : "BT Idle")}";
+            }
+            SpeakerStreamBadgeTxt.Text = s.UsbSpeakerStreaming ? "USB Audio Stream: Active" : "USB Audio Stream: Idle";
+            SpeakerStreamBadgeTxt.Foreground = s.UsbSpeakerStreaming ? Brush.Parse("#38BDF8") : Brush.Parse("#8896AE");
             if (btNow)
             {
                 PairingLiveStateTxt.Text = "✓ Sensa Paired & Connected";
@@ -875,6 +946,8 @@ public partial class MainWindow : Window
         RawBytesTxt.Text = $"Raw Btn Bytes: {s.Btn0:X2} {s.Btn1:X2} {s.Btn2:X2} {s.Btn3:X2}";
         GyroTxt.Text = $"Gyro  (X,Y,Z): {s.GyroX,6}, {s.GyroY,6}, {s.GyroZ,6}";
         AccelTxt.Text = $"Accel (X,Y,Z): {s.AccelX,6}, {s.AccelY,6}, {s.AccelZ,6}";
+        TesterRateTxt.Text = $"Link Rate: BT Rx {s.BtRxHz} Hz | USB Target {_settings.UsbPollRateHz} Hz";
+        RecordCircularitySample(s);
 
         Touch0Dot.IsVisible = s.Touch0Down;
         if (s.Touch0Down)
@@ -936,7 +1009,14 @@ public partial class MainWindow : Window
         TouchSensLabel.Text = $"{TouchSensSlider.Value:0.0}x";
 
         _mouse.GyroMouseEnabled = GyroMouseChk.IsChecked == true;
-        _mouse.GyroOnlyOnL2 = GyroL2Chk.IsChecked == true;
+        _mouse.GyroActivationMode = Math.Clamp(GyroActivationCombo.SelectedIndex, 0, 2);
+        _mouse.GyroOnlyOnL2 = _mouse.GyroActivationMode == 0;
+        _mouse.GyroInvertY = GyroInvertYChk.IsChecked == true;
+        _mouse.TouchpadTapToClick = TouchTapChk.IsChecked == true;
+        _settings.GyroActivationMode = _mouse.GyroActivationMode;
+        _settings.GyroOnlyOnL2 = _mouse.GyroOnlyOnL2;
+        _settings.GyroInvertY = _mouse.GyroInvertY;
+        _settings.TouchpadTapToClick = _mouse.TouchpadTapToClick;
         _mouse.GyroSensitivity = GyroSensSlider.Value;
         GyroSensLabel.Text = $"{GyroSensSlider.Value:0.000}";
 
@@ -1067,6 +1147,243 @@ public partial class MainWindow : Window
     }
 
     private void OnTestSpeakerClick(object? s, RoutedEventArgs e) => _pico.TriggerTestSpeaker(900);
+
+    private void OnGyroActivationChanged(object? sender, SelectionChangedEventArgs e) => OnMouseSettingsChanged(sender, e);
+
+    private void OnStickTuningChanged(object? sender, SelectionChangedEventArgs e) => ApplyStickTuning();
+    private void OnStickTuningSliderChanged(object? sender, RangeBaseValueChangedEventArgs e) => ApplyStickTuning();
+
+    private void ApplyStickTuning()
+    {
+        if (_loadingUi) return;
+        int curve = Math.Clamp(StickCurveCombo.SelectedIndex, 0, 2);
+        int outer = Math.Clamp((int)Math.Round(StickOuterDzSlider.Value), 0, 15);
+        int anti = Math.Clamp((int)Math.Round(StickAntiDzSlider.Value), 0, 20);
+        StickOuterDzLabel.Text = $"{outer}%";
+        StickAntiDzLabel.Text = $"{anti}%";
+        _settings.StickCurve = curve;
+        _settings.StickOuterDzPct = outer;
+        _settings.StickAntiDzPct = anti;
+        _settings.Save();
+        _pico.SetStickTuning(curve, outer, anti);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
+    }
+
+    private void OnIdleSleepChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingUi) return;
+        int mins = IdleSleepCombo.SelectedIndex switch { 0 => 0, 1 => 5, 2 => 10, 3 => 15, _ => 30 };
+        _settings.IdleSleepMin = mins;
+        _settings.Save();
+        _pico.SetIdleSleep(mins);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
+    }
+
+    private void OnOpenSoundSettingsClick(object? sender, RoutedEventArgs e) => _platform.OpenSoundSettings();
+
+    private void RefreshProfileCombo()
+    {
+        _settings.Profiles ??= [];
+        bool prev = _loadingUi;
+        _loadingUi = true;
+        var items = new List<string> { "(Custom / Unlinked)" };
+        foreach (var p in _settings.Profiles) items.Add(p.Name);
+        ProfileCombo.ItemsSource = items;
+        int sel = 0;
+        if (!string.IsNullOrWhiteSpace(_settings.ActiveProfileName))
+        {
+            int idx = _settings.Profiles.FindIndex(p => string.Equals(p.Name, _settings.ActiveProfileName, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0) sel = idx + 1;
+        }
+        ProfileCombo.SelectedIndex = sel;
+        if (sel > 0)
+        {
+            var prof = _settings.Profiles[sel - 1];
+            ProfileNameBox.Text = prof.Name;
+            ProfileExeBox.Text = prof.ExeName;
+        }
+        _loadingUi = prev;
+    }
+
+    private void ApplySelectedProfile(ControllerProfile profile)
+    {
+        profile.ApplyTo(_settings);
+        _settings.Save();
+        ApplySettingsToUi();
+        if (_pico.IsConnected)
+        {
+            PushSavedProfileToPico();
+            _pico.SaveConfigToFlash();
+            FlashSyncBadgeTxt.Text = $"Pico Flash: Active Profile '{profile.Name}'";
+        }
+    }
+
+    private void OnProfileSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingUi) return;
+        _settings.Profiles ??= [];
+        int idx = ProfileCombo.SelectedIndex - 1;
+        if (idx >= 0 && idx < _settings.Profiles.Count)
+        {
+            var prof = _settings.Profiles[idx];
+            ProfileNameBox.Text = prof.Name;
+            ProfileExeBox.Text = prof.ExeName;
+            ApplySelectedProfile(prof);
+        }
+    }
+
+    private void OnSaveProfileClick(object? sender, RoutedEventArgs e)
+    {
+        _settings.Profiles ??= [];
+        string name = (ProfileNameBox.Text ?? "").Trim();
+        if (string.IsNullOrEmpty(name))
+            name = $"Profile {_settings.Profiles.Count + 1}";
+        string exe = (ProfileExeBox.Text ?? "").Trim().Replace(".exe", "", StringComparison.OrdinalIgnoreCase);
+
+        var captured = ControllerProfile.CaptureFrom(name, exe, _settings);
+        int existing = _settings.Profiles.FindIndex(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing >= 0) _settings.Profiles[existing] = captured;
+        else _settings.Profiles.Add(captured);
+
+        _settings.ActiveProfileName = name;
+        _settings.Save();
+        RefreshProfileCombo();
+    }
+
+    private void OnDeleteProfileClick(object? sender, RoutedEventArgs e)
+    {
+        _settings.Profiles ??= [];
+        int idx = ProfileCombo.SelectedIndex - 1;
+        if (idx >= 0 && idx < _settings.Profiles.Count)
+        {
+            _settings.Profiles.RemoveAt(idx);
+            _settings.ActiveProfileName = "Default";
+            ProfileNameBox.Text = "";
+            ProfileExeBox.Text = "";
+            _settings.Save();
+            RefreshProfileCombo();
+        }
+    }
+
+    private void OnAutoSwitchProfileChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_loadingUi) return;
+        _settings.AutoSwitchProfiles = AutoSwitchProfileChk.IsChecked == true;
+        _settings.Save();
+    }
+
+    private void CheckForegroundProfileAutoSwitch()
+    {
+        if (!_settings.AutoSwitchProfiles || _loadingUi) return;
+        _settings.Profiles ??= [];
+        if (_settings.Profiles.Count == 0) return;
+
+        string? proc = _platform.GetForegroundProcessName();
+        if (string.IsNullOrWhiteSpace(proc) ||
+            string.Equals(proc, "SensaDS5Control", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(proc, _lastForegroundProc, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _lastForegroundProc = proc;
+        var match = _settings.Profiles.FirstOrDefault(p =>
+            !string.IsNullOrWhiteSpace(p.ExeName) &&
+            string.Equals(p.ExeName.Trim().Replace(".exe", "", StringComparison.OrdinalIgnoreCase), proc, StringComparison.OrdinalIgnoreCase));
+
+        if (match != null && !string.Equals(_settings.ActiveProfileName, match.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            ApplySelectedProfile(match);
+            RefreshProfileCombo();
+        }
+    }
+
+    private void OnCircTestToggleClick(object? sender, RoutedEventArgs e)
+    {
+        _circTesting = !_circTesting;
+        BtnCircStart.Content = _circTesting ? "Stop Test" : "Start Test";
+        if (_circTesting && !CircLResultTxt.Text.Contains("/16", StringComparison.Ordinal))
+            ResetCircularityBuffers();
+    }
+
+    private void OnCircResetClick(object? sender, RoutedEventArgs e)
+    {
+        ResetCircularityBuffers();
+    }
+
+    private void ResetCircularityBuffers()
+    {
+        Array.Clear(_circMaxL);
+        Array.Clear(_circMaxR);
+        Array.Clear(_circHitL);
+        Array.Clear(_circHitR);
+        CircLResultTxt.Text = "Left Stick Avg Error: -- (0/16 sectors)";
+        CircRResultTxt.Text = "Right Stick Avg Error: -- (0/16 sectors)";
+    }
+
+    private void RecordCircularitySample(TelemetrySample s)
+    {
+        if (!_circTesting) return;
+        UpdateCircularityAxis(s.Lx, s.Ly, _circMaxL, _circHitL, "Left", CircLResultTxt);
+        UpdateCircularityAxis(s.Rx, s.Ry, _circMaxR, _circHitR, "Right", CircRResultTxt);
+    }
+
+    private static void UpdateCircularityAxis(byte rawX, byte rawY, double[] maxR, bool[] hit, string label, TextBlock txt)
+    {
+        double nx = (rawX - 127.5) / 127.5;
+        double ny = (rawY - 127.5) / 127.5;
+        double r = Math.Sqrt(nx * nx + ny * ny);
+        if (r >= 0.65)
+        {
+            double ang = Math.Atan2(ny, nx);
+            if (ang < 0) ang += Math.PI * 2.0;
+            int sec = Math.Clamp((int)(ang / (Math.PI * 2.0) * 16.0), 0, 15);
+            hit[sec] = true;
+            if (r > maxR[sec]) maxR[sec] = r;
+        }
+        int hits = 0;
+        double sumErr = 0;
+        for (int i = 0; i < 16; i++)
+        {
+            if (hit[i])
+            {
+                hits++;
+                sumErr += Math.Abs(maxR[i] - 1.0) * 100.0;
+            }
+        }
+        txt.Text = hits > 0
+            ? $"{label} Stick Avg Error: {(sumErr / hits):0.0}% ({hits}/16 sectors)"
+            : $"{label} Stick Avg Error: -- (0/16 sectors)";
+    }
+
+    private async Task CheckLatestAppReleaseAsync()
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(6) };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("SensaDS5Control");
+            using var resp = await http.GetAsync("https://api.github.com/repos/Yamerooo-hd/SensaDS5Control/releases/latest");
+            if (!resp.IsSuccessStatusCode)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => AppReleaseBadgeTxt.Text = $"v{BundledFirmware.Version} • Ready");
+                return;
+            }
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("tag_name", out var tagEl)) return;
+            var tag = (tagEl.GetString() ?? "").Trim();
+            var remoteStr = tag.TrimStart('v', 'V');
+            var localStr = BundledFirmware.Version.TrimStart('v', 'V');
+            bool newer = Version.TryParse(remoteStr, out var rv) && Version.TryParse(localStr, out var lv) && rv > lv;
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AppReleaseBadgeTxt.Text = newer ? $"Update {tag} Available" : $"v{localStr} • Latest";
+                AppReleaseBadgeTxt.Foreground = newer ? Brush.Parse("#F59E0B") : Brush.Parse("#38BDF8");
+            });
+        }
+        catch
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => AppReleaseBadgeTxt.Text = $"v{BundledFirmware.Version}");
+        }
+    }
 
     private void OnTestCrispTapClick(object? s, RoutedEventArgs e) => _pico.TriggerTestWave("36", 125, 160, 300);
     private void OnTestHapticBuzzClick(object? s, RoutedEventArgs e) => _pico.TriggerTestWave("36", 120, 120, 900);
@@ -1319,6 +1636,7 @@ public partial class MainWindow : Window
         _fwActionCts?.Cancel();
         _hotplugTimer.Stop();
         _logFlushTimer.Stop();
+        _profileTimer.Stop();
         _mouse.ReleaseAllButtons(_platform);
         _pico.Dispose();
         base.OnClosed(e);

@@ -1,14 +1,17 @@
 #include "sensa_bt.h"
 #include "sensa_console.h"
 #include "sensa_dsp.h"
+#include "sensa_flash.h"
 #include "sensa_usb.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 #include "btstack.h"
 #include "classic/sdp_client.h"
 #include "classic/sdp_util.h"
+#include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
 #include "pico/time.h"
 
@@ -50,6 +53,19 @@ bool pairing_target_found = false;
 bd_addr_t pairing_target_addr{};
 uint8_t pairing_target_page_rep = 0;
 uint16_t pairing_target_clk_off = 0;
+bd_addr_t blocked_inq_addr{};
+uint32_t blocked_inq_until_us = 0;
+
+uint32_t bt_rx_sec_start_us = 0;
+uint16_t bt_rx_sec_cnt = 0;
+uint32_t last_input_activity_us = 0;
+uint8_t last_battery_pct = 100;
+uint8_t last_battery_chg = 0;
+bool prev_mic_stream_en = false;
+bool send_mic_ctrl_once = false;
+uint32_t combo_usb_since_us = 0;
+bool combo_usb_fired = false;
+uint32_t combo_vol_last_us = 0;
 
 // Outgoing TX state
 uint8_t bt_seq_nibble = 0;
@@ -509,6 +525,12 @@ void fill_state_block(uint8_t p[63], bool allow_synth_motors, bool haptics_audio
         p[44] = led_override_r;
         p[45] = led_override_g;
         p[46] = led_override_b;
+    } else if (last_battery_pct <= 10 && last_battery_chg == 0 && (p[1] & 0x04u) == 0) {
+        // Standalone low-battery indicator: warm amber/red warning when game/app hasn't claimed lightbar
+        p[1] |= 0x04u;
+        p[44] = 255;
+        p[45] = 45;
+        p[46] = 0;
     }
 }
 
@@ -530,7 +552,8 @@ void build_0x32_packet(uint8_t out_pkt[143], int8_t const haptics[64]) {
     r[0] = 0x32;
     r[1] = static_cast<uint8_t>((bt_seq_nibble++ & 0x0Fu) << 4);
     r[2] = 0x91; r[3] = 0x07;
-    r[4] = 0xFE; r[5] = 0x00; r[6] = 0x00; r[7] = 0x00; r[8] = 0x00; r[9] = 0x20;
+    r[4] = g_telemetry.usb_mic_streaming ? 0xFFu : 0xFEu;
+    r[5] = 0x00; r[6] = 0x00; r[7] = 0x00; r[8] = 0x00; r[9] = 0x20;
     r[10] = bt_audio_ctr++;
     r[11] = 0x92; r[12] = 64;
     std::memcpy(r + 13, haptics, 64);
@@ -544,7 +567,8 @@ void build_long_haptic_packet(uint8_t report_id, uint16_t payload_len, uint8_t *
     r[0] = report_id;
     r[1] = static_cast<uint8_t>((bt_seq_nibble++ & 0x0Fu) << 4);
     r[2] = 0x91; r[3] = 0x07;
-    r[4] = 0xFE; r[5] = 0x00; r[6] = 0x00; r[7] = 0x00; r[8] = 0x00; r[9] = 0x20;
+    r[4] = g_telemetry.usb_mic_streaming ? 0xFFu : 0xFEu;
+    r[5] = 0x00; r[6] = 0x00; r[7] = 0x00; r[8] = 0x00; r[9] = 0x20;
     r[10] = bt_audio_ctr++;
     r[11] = 0x90; r[12] = 63;
     fill_state_block(r + 13, false, true);
@@ -589,6 +613,9 @@ void on_hid_session_ready() {
     prefetch_idx = 0;
     for (uint8_t i = 0; i < 4; ++i) prefetch_ids[i] = kReqIds[i];
     prefetch_next_us = time_us_32() + 40000u;
+    last_input_activity_us = time_us_32();
+    bt_rx_sec_start_us = last_input_activity_us;
+    bt_rx_sec_cnt = 0;
     unlock_boot_retries_left = 6;
     next_unlock_retry_us = time_us_32() + 300000u;
     last_state_send_us = time_us_32();
@@ -640,6 +667,10 @@ void reset_session_state() {
     g_telemetry.bt_control_ready = false;
     g_telemetry.bt_interrupt_ready = false;
     g_telemetry.bt_connecting = false;
+    g_telemetry.bt_rx_hz = 0;
+    bt_rx_sec_cnt = 0;
+    combo_usb_since_us = 0;
+    combo_usb_fired = false;
     usb_set_bt_ready(false);
 }
 
@@ -659,6 +690,62 @@ void convert_short_0x01_to_ds5(uint8_t const *in9, uint8_t out63[63]) {
     out63[53] = 0x08;
 }
 
+void handle_controller_activity_and_shortcuts(uint8_t const b[63], bool full_report) {
+    uint32_t now_us = time_us_32();
+    bool active = (std::abs(static_cast<int>(b[0]) - 128) > 14) ||
+                  (std::abs(static_cast<int>(b[1]) - 128) > 14) ||
+                  (std::abs(static_cast<int>(b[2]) - 128) > 14) ||
+                  (std::abs(static_cast<int>(b[3]) - 128) > 14) ||
+                  b[4] > 12 || b[5] > 12 ||
+                  (b[7] & 0xF0u) != 0 || (b[7] & 0x0Fu) != 0x08u ||
+                  b[8] != 0 || (b[9] & 0x07u) != 0 ||
+                  (full_report && ((b[32] & 0x80u) == 0 || (b[36] & 0x80u) == 0));
+    if (active || last_input_activity_us == 0) {
+        last_input_activity_us = now_us;
+    }
+
+    if (!full_report) return;
+    last_battery_pct = std::min<uint8_t>(b[52] & 0x0Fu, 10) * 10;
+    last_battery_chg = (b[52] >> 4) & 0x0Fu;
+
+    bool ps = (b[9] & 0x01u) != 0;
+    bool options = (b[8] & 0x20u) != 0;
+    bool l1 = (b[8] & 0x01u) != 0;
+    uint8_t dpad = b[7] & 0x0Fu;
+
+    // Standalone combo 1: PS + Options (hold 1.5s) -> toggle DualSense <-> Xbox 360 & reboot
+    if (ps && options && !l1) {
+        if (combo_usb_since_us == 0) combo_usb_since_us = now_us;
+        if (!combo_usb_fired && static_cast<uint32_t>(now_us - combo_usb_since_us) >= 1500000u) {
+            combo_usb_fired = true;
+            UsbMode next = (g_usb_mode == UsbMode::DualSense) ? UsbMode::Xbox360 : UsbMode::DualSense;
+            g_usb_mode = next;
+            config_save_now();
+            watchdog_hw->scratch[0] = kUsbModeScratchMagic;
+            watchdog_hw->scratch[1] = static_cast<uint32_t>(next);
+            console_printf("[BTN] PS+Options -> Switching USB to %s & rebooting\n", usb_mode_name(next));
+            console_poll();
+            sleep_ms(50);
+            watchdog_reboot(0, 0, 0);
+        }
+    } else {
+        combo_usb_since_us = 0;
+        combo_usb_fired = false;
+    }
+
+    // Standalone combo 2: PS + L1 + D-Pad Up / Down -> adjust Speaker Volume +/- 10%
+    if (ps && l1 && (dpad == 0 || dpad == 4)) {
+        if (static_cast<uint32_t>(now_us - combo_vol_last_us) >= 280000u) {
+            combo_vol_last_us = now_us;
+            int v = static_cast<int>(g_dsp_config.speaker_volume_pct) + (dpad == 0 ? 10 : -10);
+            g_dsp_config.speaker_volume_pct = static_cast<uint8_t>(std::clamp(v, 0, 100));
+            config_mark_dirty();
+            bt_request_state_update();
+            console_printf("[BTN] Speaker Volume -> %u%%\n", g_dsp_config.speaker_volume_pct);
+        }
+    }
+}
+
 void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size) {
     if (packet_type == L2CAP_DATA_PACKET) {
         if (channel == hid_intr_cid && size > 2) {
@@ -666,6 +753,19 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
                 rx_intr_logged = true;
                 console_printf("[BT] First Intr RX id=0x%02X len=%u\n", packet[1], size);
             }
+            if (packet[1] == 0x31 && (packet[2] & 0x02u) != 0 && size >= 75) {
+                dsp_push_bt_mic_opus(packet + 4, 71);
+                return;
+            }
+            uint32_t now_rx = time_us_32();
+            if (bt_rx_sec_start_us == 0) bt_rx_sec_start_us = now_rx;
+            bt_rx_sec_cnt++;
+            if (static_cast<uint32_t>(now_rx - bt_rx_sec_start_us) >= 1000000u) {
+                g_telemetry.bt_rx_hz = bt_rx_sec_cnt;
+                bt_rx_sec_cnt = 0;
+                bt_rx_sec_start_us = now_rx;
+            }
+
             uint16_t copy_dbg = std::min<uint16_t>(size, sizeof(last_intr_rx));
             std::memcpy(last_intr_rx, packet, copy_dbg);
             last_intr_rx_size = size;
@@ -674,10 +774,12 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
                 g_telemetry.bt_0x31_rx_count++;
                 std::memcpy(last_bt_body, packet + 3, 63);
                 usb_submit_bt_input_report(packet + 3, 63);
+                handle_controller_activity_and_shortcuts(last_bt_body, true);
             } else if (packet[1] == 0x01 && size >= 11) {
                 g_telemetry.bt_0x01_rx_count++;
                 convert_short_0x01_to_ds5(packet + 2, last_bt_body);
                 usb_submit_bt_input_report(last_bt_body, 63);
+                handle_controller_activity_and_shortcuts(last_bt_body, false);
             }
             if (btmon_enabled) {
                 uint16_t mlen = std::min<uint16_t>(size, sizeof(last_mon_raw));
@@ -764,7 +866,18 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
 
         if (cid == hid_intr_cid) {
             intr_can_send_req = false;
-            if (audio_block_pending) {
+            if (send_mic_ctrl_once && !audio_block_pending) {
+                send_mic_ctrl_once = false;
+                uint8_t mic_pkt[143]{};
+                mic_pkt[0] = 0xA2;
+                mic_pkt[1] = 0x32;
+                mic_pkt[2] = static_cast<uint8_t>((bt_seq_nibble++ & 0x0Fu) << 4);
+                mic_pkt[3] = 0x91;
+                mic_pkt[4] = 1;
+                mic_pkt[5] = g_telemetry.usb_mic_streaming ? 0x03u : 0x02u;
+                write_bt_report_crc(mic_pkt + 1, 142);
+                l2cap_send(hid_intr_cid, mic_pkt, sizeof(mic_pkt));
+            } else if (audio_block_pending) {
                 audio_block_pending = false;
                 uint8_t const *opus_ptr = opus_block_pending ? pending_opus_block : nullptr;
                 bool send_opus = opus_block_pending;
@@ -820,7 +933,7 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
                     g_telemetry.l2cap_fail_count++;
                 }
             }
-            if (audio_block_pending || state_send_pending) {
+            if (audio_block_pending || state_send_pending || send_mic_ctrl_once) {
                 request_intr_tx();
             }
             return;
@@ -951,7 +1064,14 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
                            bd_addr_to_str(addr), static_cast<unsigned long>(cod), name_buf);
             // Major Device Class 5 = Peripheral (Gamepads/Controllers)
             // Defer hci_create_connection until GAP_EVENT_INQUIRY_COMPLETE to avoid HCI 0x0C (Command Disallowed).
+            // Skip recently failed targets for 18s so wrong nearby BT devices cannot hijack pairing scans.
             if (major == 5) {
+                bool on_cooldown = bd_addr_cmp(addr, blocked_inq_addr) == 0 &&
+                                   static_cast<int32_t>(time_us_32() - blocked_inq_until_us) < 0;
+                if (on_cooldown) {
+                    console_printf("[BT] Skipping inquiry cooldown MAC %s\n", bd_addr_to_str(addr));
+                    break;
+                }
                 bd_addr_copy(pairing_target_addr, addr);
                 pairing_target_page_rep = gap_event_inquiry_result_get_page_scan_repetition_mode(packet);
                 pairing_target_clk_off = gap_event_inquiry_result_get_clock_offset(packet);
@@ -1012,6 +1132,10 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
             uint8_t st = hci_event_connection_complete_get_status(packet);
             if (st != 0) {
                 console_printf("[BT] ACL connect failed status=0x%02X\n", st);
+                if (peer_addr_valid) {
+                    bd_addr_copy(blocked_inq_addr, peer_addr);
+                    blocked_inq_until_us = time_us_32() + 18000000u;
+                }
                 if (pairing_window && !inquiry_active) {
                     uint8_t ist = gap_inquiry_start(8);
                     inquiry_active = (ist == ERROR_CODE_SUCCESS);
@@ -1603,6 +1727,26 @@ void bt_poll() {
         }
     }
 
+    // Toggle BT Mic transport cleanly when Windows USB Mic IN starts/stops
+    if (g_telemetry.usb_mic_streaming != prev_mic_stream_en) {
+        prev_mic_stream_en = g_telemetry.usb_mic_streaming;
+        send_mic_ctrl_once = true;
+        request_intr_tx();
+    }
+
+    // Standalone auto-sleep idle disconnect to save controller battery
+    if (g_dsp_config.idle_sleep_min > 0 && last_input_activity_us != 0 &&
+        acl_handle != HCI_CON_HANDLE_INVALID) {
+        uint64_t idle_limit_us = static_cast<uint64_t>(g_dsp_config.idle_sleep_min) * 60000000ULL;
+        uint64_t elapsed_us = static_cast<uint32_t>(now_us - last_input_activity_us);
+        if (elapsed_us >= idle_limit_us) {
+            console_printf("[SLEEP] Controller idle for %u min -> sleeping BT link\n", g_dsp_config.idle_sleep_min);
+            last_input_activity_us = now_us;
+            bt_disconnect_now();
+            return;
+        }
+    }
+
     // Structured 30 Hz telemetry stream for SensaDS5Control desktop app
     if (tele_enabled && static_cast<int32_t>(now_us - last_tele_us) >= 33333) {
         last_tele_us = now_us;
@@ -1618,7 +1762,7 @@ void bt_poll() {
         uint16_t t1y = static_cast<uint16_t>((b[38] >> 4) | (b[39] << 4));
         uint8_t bat = std::min<uint8_t>(b[52] & 0x0Fu, 10) * 10;
         uint8_t chg = (b[52] >> 4) & 0x0Fu;
-        console_printf("TELE,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%u,%u,%u,%u,%u,%u\n",
+        console_printf("TELE,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%lu,%u,%u,%u,%u,%u,%u,%u,%u\n",
                        rx_0x31_seen ? 1u : 0u,
                        b[0], b[1], b[2], b[3], b[4], b[5],
                        b[7], b[8], b[9], b[10],
@@ -1634,7 +1778,9 @@ void bt_poll() {
                        static_cast<unsigned>(g_usb_mode),
                        static_cast<unsigned>(g_dsp_config.impulse_mode),
                        g_dsp_config.impulse_strength_pct,
-                       g_telemetry.bt_interrupt_ready ? 1u : 0u);
+                       g_telemetry.bt_interrupt_ready ? 1u : 0u,
+                       g_telemetry.bt_rx_hz,
+                       g_telemetry.usb_speaker_streaming ? 1u : 0u);
     }
 }
 

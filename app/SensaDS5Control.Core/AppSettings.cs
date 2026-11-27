@@ -76,6 +76,17 @@ public sealed class AppSettings
         return new();
     }
 
+    public int IdleSleepMin { get; set; } = 10;
+    public int StickCurve { get; set; }
+    public int StickOuterDzPct { get; set; }
+    public int StickAntiDzPct { get; set; }
+    public bool TouchpadTapToClick { get; set; }
+    public bool GyroInvertY { get; set; }
+    public int GyroActivationMode { get; set; }
+    public bool AutoSwitchProfiles { get; set; }
+    public string ActiveProfileName { get; set; } = "Default";
+    public List<ControllerProfile> Profiles { get; set; } = [];
+
     public void Save()
     {
         try

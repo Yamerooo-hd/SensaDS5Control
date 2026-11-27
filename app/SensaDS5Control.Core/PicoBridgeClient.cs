@@ -242,6 +242,9 @@ public sealed class PicoBridgeClient : IDisposable
     public void SetSpeakerVolume(int volPct) => SendCommand($"spkvol {Math.Clamp(volPct, 0, 100)}");
     public void SetSpeakerGain(int gain1to7) => SendCommand($"spkgain {Math.Clamp(gain1to7, 1, 7)}");
     public void TriggerTestSpeaker(int ms = 900) => SendCommand($"testspk {Math.Clamp(ms, 150, 4000)}");
+    public void SetIdleSleep(int minutes) => SendCommand($"idlesleep {Math.Clamp(minutes, 0, 60)}");
+    public void SetStickTuning(int curve, int outerDzPct, int antiDzPct) =>
+        SendCommand($"sticktune {Math.Clamp(curve, 0, 2)} {Math.Clamp(outerDzPct, 0, 15)} {Math.Clamp(antiDzPct, 0, 20)}");
     public void RequestConfig() => SendCommand("getcfg");
     public void SaveConfigToFlash() => SendCommand("save");
     public void StartPairing() => SendCommand("pair");

@@ -16,7 +16,7 @@ namespace sensa {
 namespace {
 
 constexpr uint32_t kFlashMagic = 0x53454E32u; // "SEN2"
-constexpr uint16_t kFlashVersion = 3;
+constexpr uint16_t kFlashVersion = 4;
 constexpr uint32_t kSaveDebounceUs = 1200000u;
 
 // Reserve 6 sectors from end of flash:
@@ -61,6 +61,10 @@ struct __attribute__((packed)) PersistedConfig {
     uint16_t usb_poll_rate_hz;
     uint8_t speaker_volume_pct;
     uint8_t speaker_gain;
+    uint8_t idle_sleep_min;
+    uint8_t stick_curve;
+    uint8_t stick_outer_dz_pct;
+    uint8_t stick_anti_dz_pct;
 
     uint32_t crc32;
 };
@@ -101,6 +105,10 @@ void populate_cfg_from_runtime(PersistedConfig &cfg, uint32_t seq) {
     cfg.impulse_strength_pct = g_dsp_config.impulse_strength_pct;
     cfg.speaker_volume_pct = g_dsp_config.speaker_volume_pct;
     cfg.speaker_gain = g_dsp_config.speaker_gain;
+    cfg.idle_sleep_min = g_dsp_config.idle_sleep_min;
+    cfg.stick_curve = g_dsp_config.stick_curve;
+    cfg.stick_outer_dz_pct = g_dsp_config.stick_outer_dz_pct;
+    cfg.stick_anti_dz_pct = g_dsp_config.stick_anti_dz_pct;
 
     bt_export_persisted_state(
         cfg.led_override, cfg.led_r, cfg.led_g, cfg.led_b, cfg.mic_led_mode,
@@ -172,6 +180,10 @@ bool config_load_from_flash(bool watchdog_usb_override) {
     g_dsp_config.impulse_strength_pct = clamp_u8(copy.impulse_strength_pct, 0, 100);
     g_dsp_config.speaker_volume_pct = clamp_u8(copy.speaker_volume_pct, 0, 100);
     g_dsp_config.speaker_gain = clamp_u8(copy.speaker_gain, 1, 7);
+    g_dsp_config.idle_sleep_min = clamp_u8(copy.idle_sleep_min, 0, 60);
+    g_dsp_config.stick_curve = clamp_u8(copy.stick_curve, 0, 2);
+    g_dsp_config.stick_outer_dz_pct = clamp_u8(copy.stick_outer_dz_pct, 0, 15);
+    g_dsp_config.stick_anti_dz_pct = clamp_u8(copy.stick_anti_dz_pct, 0, 20);
 
     bt_import_persisted_state(
         copy.led_override != 0, copy.led_r, copy.led_g, copy.led_b, copy.mic_led_mode,

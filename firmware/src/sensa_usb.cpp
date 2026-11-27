@@ -330,17 +330,36 @@ void usb_set_bt_ready(bool ready) {
 }
 
 void apply_radial_deadzone(uint8_t &ax, uint8_t &ay, uint8_t dz_pct) {
-    if (dz_pct == 0) return;
+    uint8_t outer_pct = std::min<uint8_t>(g_dsp_config.stick_outer_dz_pct, 15);
+    uint8_t anti_pct = std::min<uint8_t>(g_dsp_config.stick_anti_dz_pct, 20);
+    uint8_t curve = g_dsp_config.stick_curve;
+    if (dz_pct == 0 && outer_pct == 0 && anti_pct == 0 && curve == 0) return;
+
     float dx = static_cast<float>(ax) - 128.0f;
     float dy = static_cast<float>(ay) - 128.0f;
     float mag = std::sqrt(dx * dx + dy * dy);
-    float dz_rad = static_cast<float>(dz_pct) * 1.27f;
-    if (mag <= dz_rad || mag < 0.001f) {
+    float inner_rad = static_cast<float>(dz_pct) * 1.27f;
+    float max_rad = 127.0f * (1.0f - static_cast<float>(outer_pct) * 0.01f);
+    if (max_rad <= inner_rad + 1.0f) max_rad = inner_rad + 1.0f;
+
+    if (mag <= inner_rad || mag < 0.001f) {
         ax = 128;
         ay = 128;
         return;
     }
-    float norm_mag = std::min(127.0f, ((mag - dz_rad) * 127.0f) / (127.0f - dz_rad));
+
+    float t = std::min(1.0f, (mag - inner_rad) / (max_rad - inner_rad));
+    if (curve == 1) {
+        // Precision: softer near center (pow ~1.45 without slow powf)
+        t = t * (0.65f + 0.35f * t * t);
+    } else if (curve == 2) {
+        // Aggressive: faster ramp out of center
+        t = 1.0f - (1.0f - t) * (1.0f - t);
+    }
+
+    float anti_min = static_cast<float>(anti_pct) * 0.01f;
+    float curved = anti_min + t * (1.0f - anti_min);
+    float norm_mag = std::min(127.0f, curved * 127.0f);
     float scale = norm_mag / mag;
     int ix = static_cast<int>(std::lround(128.0f + dx * scale));
     int iy = static_cast<int>(std::lround(128.0f + dy * scale));
@@ -351,10 +370,8 @@ void apply_radial_deadzone(uint8_t &ax, uint8_t &ay, uint8_t dz_pct) {
 void usb_submit_bt_input_report(uint8_t const *report_63b, uint16_t len) {
     if (!report_63b || len < sizeof(latest_input_report)) return;
     std::memcpy(latest_input_report, report_63b, sizeof(latest_input_report));
-    if (g_stick_deadzone_pct > 0) {
-        apply_radial_deadzone(latest_input_report[0], latest_input_report[1], g_stick_deadzone_pct);
-        apply_radial_deadzone(latest_input_report[2], latest_input_report[3], g_stick_deadzone_pct);
-    }
+    apply_radial_deadzone(latest_input_report[0], latest_input_report[1], g_stick_deadzone_pct);
+    apply_radial_deadzone(latest_input_report[2], latest_input_report[3], g_stick_deadzone_pct);
     input_dirty = true;
     try_send_hid_input();
 }

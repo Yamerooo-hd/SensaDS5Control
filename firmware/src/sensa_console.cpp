@@ -161,13 +161,24 @@ void handle_command(char *line) {
         dsp_trigger_test_speaker(static_cast<uint32_t>(ms));
         console_printf("[TEST] Controller speaker chime for %d ms (vol=%u%% preamp=%u)\n",
                        ms, g_dsp_config.speaker_volume_pct, g_dsp_config.speaker_gain);
+    } else if (eq_ci(cmd, "idlesleep") && argc >= 2) {
+        g_dsp_config.idle_sleep_min = static_cast<uint8_t>(clamp_arg(tokens[1], 0, 60));
+        config_mark_dirty();
+        console_printf("[SLEEP] idle_sleep=%umin\n", g_dsp_config.idle_sleep_min);
+    } else if (eq_ci(cmd, "sticktune") && argc >= 4) {
+        g_dsp_config.stick_curve = static_cast<uint8_t>(clamp_arg(tokens[1], 0, 2));
+        g_dsp_config.stick_outer_dz_pct = static_cast<uint8_t>(clamp_arg(tokens[2], 0, 15));
+        g_dsp_config.stick_anti_dz_pct = static_cast<uint8_t>(clamp_arg(tokens[3], 0, 20));
+        config_mark_dirty();
+        console_printf("[STICK] curve=%u outer=%u%% antidz=%u%%\n",
+                       g_dsp_config.stick_curve, g_dsp_config.stick_outer_dz_pct, g_dsp_config.stick_anti_dz_pct);
     } else if (eq_ci(cmd, "save")) {
         config_save_now();
     } else if (eq_ci(cmd, "getcfg")) {
         uint8_t led_en = 0, lr = 0, lg = 0, lb = 0, mic = 0, tr_en = 0, tl_en = 0;
         uint8_t tr[11]{}, tl[11]{};
         bt_export_persisted_state(led_en, lr, lg, lb, mic, tr_en, tr, tl_en, tl);
-        console_printf("CFG,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%s,%u,%u,%u,%u\n",
+        console_printf("CFG,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%s,%u,%u,%u,%u,%u,%u,%u,%u\n",
                        config_is_flash_fresh() ? 1u : 0u,
                        static_cast<unsigned>(g_usb_mode),
                        static_cast<unsigned>(g_haptic_mode),
@@ -179,7 +190,11 @@ void handle_command(char *line) {
                        g_telemetry.bt_has_bonded_key ? 1u : 0u,
                        g_usb_poll_rate_hz,
                        g_dsp_config.speaker_volume_pct,
-                       g_dsp_config.speaker_gain);
+                       g_dsp_config.speaker_gain,
+                       g_dsp_config.idle_sleep_min,
+                       g_dsp_config.stick_curve,
+                       g_dsp_config.stick_outer_dz_pct,
+                       g_dsp_config.stick_anti_dz_pct);
     } else if (eq_ci(cmd, "imptrigtest")) {
         int pct = argc >= 2 ? clamp_arg(tokens[1], 5, 100) : 85;
         int ms = argc >= 3 ? clamp_arg(tokens[2], 50, 3000) : 600;
@@ -349,6 +364,7 @@ void console_print_help() {
     console_printf("  deadzone <0..25>    - Stick inner radial deadzone %% (saved in flash)\n");
     console_printf("  pollrate <250|500|1000> - USB polling rate Hz for DualSense & Xbox 360\n");
     console_printf("  spkvol <0..100> | spkgain <1..7> | testspk [ms] - Controller speaker volume, preamp & audio chime\n");
+    console_printf("  idlesleep <0..60> | sticktune <curve 0..2> <outer 0..15> <antidz 0..20>\n");
     console_printf("  usbmode <ds5|x360>  - Switch USB identity, save & soft-reboot\n");
     console_printf("  save | getcfg | tele <0|1> | btmon <0|1> | unlock <0..4> | dbg\n");
     console_printf("  pair | forget | disconnect | reconnect | reboot | bootsel\n\n");
@@ -357,7 +373,8 @@ void console_print_help() {
 void console_print_status() {
     auto const &t = g_telemetry;
     console_printf("\n--- SensaBridge Status ---\n");
-    console_printf("Mode: %s | USBID: %s @ %uHz\n", haptic_mode_name(g_haptic_mode), usb_mode_name(g_usb_mode), g_usb_poll_rate_hz);
+    console_printf("Mode: %s | USBID: %s @ %uHz | btRx=%uHz\n",
+                   haptic_mode_name(g_haptic_mode), usb_mode_name(g_usb_mode), g_usb_poll_rate_hz, t.bt_rx_hz);
     console_printf("USB: mounted=%d spkStream=%d micStream=%d vol=%u%% mute=%d audioFrames=%lu usb0x02=%lu\n",
                    t.usb_mounted ? 1 : 0, t.usb_speaker_streaming ? 1 : 0, t.usb_mic_streaming ? 1 : 0,
                    t.usb_volume_pct, t.usb_muted ? 1 : 0,

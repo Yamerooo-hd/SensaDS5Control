@@ -17,12 +17,21 @@ public sealed class MouseMapper
     private double _calSumX, _calSumY;
 
     public bool TouchpadMouseEnabled { get; set; }
+    public bool TouchpadTapToClick { get; set; }
     public double TouchpadSensitivity { get; set; } = 1.2;
 
     public bool GyroMouseEnabled { get; set; }
     public bool GyroOnlyOnL2 { get; set; } = true;
+    public int GyroActivationMode { get; set; } // 0=Hold L2, 1=Hold L1, 2=Always On
+    public bool GyroInvertY { get; set; }
     public double GyroSensitivity { get; set; } = 0.035;
     public int GyroDeadzone { get; set; } = 35;
+
+    private bool _wasTouchForTap;
+    private long _tapStartMs;
+    private double _tapMoved;
+    private long _tapReleaseAtMs;
+    private bool _tapClickDown;
 
     public void StartGyroCalibration()
     {
@@ -65,6 +74,14 @@ public sealed class MouseMapper
 
         if (TouchpadMouseEnabled)
         {
+            long nowMs = Environment.TickCount64;
+            if (_tapClickDown && nowMs >= _tapReleaseAtMs)
+            {
+                _tapClickDown = false;
+                if (!s.TouchpadClick)
+                    platform.MouseLeftClick(false);
+            }
+
             bool twoFingers = s.Touch0Down && s.Touch1Down;
             if (twoFingers)
             {
@@ -85,6 +102,7 @@ public sealed class MouseMapper
                 _lastScrollY = s.Touch0Y;
                 _wasTwoFinger = true;
                 _wasTouch0 = false;
+                _wasTouchForTap = false;
             }
             else
             {
@@ -99,7 +117,14 @@ public sealed class MouseMapper
                         {
                             dx += rawDx * TouchpadSensitivity;
                             dy += rawDy * TouchpadSensitivity;
+                            _tapMoved += Math.Abs(rawDx) + Math.Abs(rawDy);
                         }
+                    }
+                    else
+                    {
+                        _tapStartMs = nowMs;
+                        _tapMoved = 0;
+                        _wasTouchForTap = true;
                     }
                     _lastX = s.Touch0X;
                     _lastY = s.Touch0Y;
@@ -107,13 +132,21 @@ public sealed class MouseMapper
                 }
                 else
                 {
+                    if (_wasTouchForTap && TouchpadTapToClick && !s.TouchpadClick && (nowMs - _tapStartMs) <= 220 && _tapMoved < 30)
+                    {
+                        _tapClickDown = true;
+                        _tapReleaseAtMs = nowMs + 40;
+                        platform.MouseLeftClick(true);
+                    }
                     _wasTouch0 = false;
+                    _wasTouchForTap = false;
                 }
             }
 
             bool clicked = s.TouchpadClick;
             if (clicked != _wasClick)
             {
+                _tapClickDown = false;
                 if (clicked)
                 {
                     bool rightSide = s.Touch0Down && s.Touch0X > 960;
@@ -132,15 +165,27 @@ public sealed class MouseMapper
         }
         else
         {
+            _wasTouchForTap = false;
+            if (_tapClickDown)
+            {
+                _tapClickDown = false;
+                platform.MouseLeftClick(false);
+            }
             ReleaseAllButtons(platform);
         }
 
-        if (GyroMouseEnabled && (!GyroOnlyOnL2 || s.L2 > 40))
+        bool gyroActive = GyroActivationMode switch
+        {
+            1 => s.L1,
+            2 => true,
+            _ => !GyroOnlyOnL2 || s.L2 > 40,
+        };
+        if (GyroMouseEnabled && gyroActive)
         {
             double gx = s.GyroX - _gyroZeroX;
             double gy = s.GyroY - _gyroZeroY;
             if (Math.Abs(gy) > GyroDeadzone) dx += -gy * GyroSensitivity;
-            if (Math.Abs(gx) > GyroDeadzone) dy += -gx * GyroSensitivity;
+            if (Math.Abs(gx) > GyroDeadzone) dy += (GyroInvertY ? gx : -gx) * GyroSensitivity;
         }
 
         _fracX += dx;

@@ -160,6 +160,30 @@
             </Grid>
           </Border>
 
+          <!-- Profiles & App Auto-Switch Card -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="hdr" Text="Controller Profiles &amp; Game Auto-Switch" />
+                <Border Grid.Column="1" Classes="pill">
+                  <TextBlock x:Name="AppReleaseBadgeTxt" Text="v0.2.0 • Checking..." FontSize="11" FontWeight="SemiBold"
+                             Foreground="{DynamicResource NavActiveFgBrush}" />
+                </Border>
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2,0,0">
+                <ComboBox x:Name="ProfileCombo" HorizontalAlignment="Stretch" SelectionChanged="OnProfileSelected" />
+                <Button Grid.Column="1" Content="Save Profile" Click="OnSaveProfileClick" Margin="8,0,0,0" />
+                <Button Grid.Column="2" Content="Delete" Click="OnDeleteProfileClick" Margin="6,0,0,0" />
+              </Grid>
+              <Grid ColumnDefinitions="150,*,Auto">
+                <TextBox x:Name="ProfileNameBox" Watermark="Profile Name (e.g. FPS)" />
+                <TextBox x:Name="ProfileExeBox" Grid.Column="1" Watermark="Linked Game .exe (e.g. cs2, valorant)" Margin="8,0" />
+                <CheckBox x:Name="AutoSwitchProfileChk" Grid.Column="2" Content="Auto-Switch"
+                          IsCheckedChanged="OnAutoSwitchProfileChanged" VerticalAlignment="Center" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
           <Grid ColumnDefinitions="*,*">
             <!-- Mouse, Gyro & Stick Deadzone Card -->
             <Border Classes="card" Margin="0,0,7,0">
@@ -173,6 +197,8 @@
                           ValueChanged="OnMouseSettingsChanged" Margin="4,0" />
                   <TextBlock x:Name="TouchSensLabel" Grid.Column="2" Text="1.2x" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
                 </Grid>
+                <CheckBox x:Name="TouchTapChk" Content="Touchpad tap-to-click (quick single-finger tap)"
+                          IsCheckedChanged="OnMouseSettingsChanged" />
                 <CheckBox x:Name="GyroMouseChk" Content="Gyro Aiming as Mouse" IsCheckedChanged="OnMouseSettingsChanged" />
                 <Grid ColumnDefinitions="92,*,46">
                   <TextBlock Text="Gyro Sens:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
@@ -180,16 +206,34 @@
                           ValueChanged="OnMouseSettingsChanged" Margin="4,0" />
                   <TextBlock x:Name="GyroSensLabel" Grid.Column="2" Text="0.035" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
                 </Grid>
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <CheckBox x:Name="GyroL2Chk" Content="Only while holding L2" IsChecked="True" IsCheckedChanged="OnMouseSettingsChanged" />
+                <WrapPanel Orientation="Horizontal">
+                  <ComboBox x:Name="GyroActivationCombo" Width="135" Margin="0,0,8,0" SelectionChanged="OnGyroActivationChanged" />
+                  <CheckBox x:Name="GyroInvertYChk" Content="Invert Y" Margin="0,0,10,0" IsCheckedChanged="OnMouseSettingsChanged" />
                   <Button Content="Calibrate Zero" Click="OnCalibrateGyroClick" />
-                </StackPanel>
+                </WrapPanel>
                 <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
                 <Grid ColumnDefinitions="108,*,42">
                   <TextBlock Text="Stick Deadzone:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
                   <Slider x:Name="StickDeadzoneSlider" Grid.Column="1" Minimum="0" Maximum="25" Value="4"
                           ValueChanged="OnDeadzoneChanged" Margin="4,0" />
                   <TextBlock x:Name="StickDeadzoneLabel" Grid.Column="2" Text="4%" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
+              </Grid>
+              <Grid ColumnDefinitions="115,*,42" Margin="0,2,0,0">
+                <TextBlock Text="Stick Curve:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <ComboBox x:Name="StickCurveCombo" Grid.Column="1" Grid.ColumnSpan="2" HorizontalAlignment="Stretch"
+                          SelectionChanged="OnStickTuningChanged" Margin="4,0,0,0" />
+              </Grid>
+              <Grid ColumnDefinitions="115,*,42">
+                <TextBlock Text="Outer Deadzone:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <Slider x:Name="StickOuterDzSlider" Grid.Column="1" Minimum="0" Maximum="15" Value="0"
+                        ValueChanged="OnStickTuningSliderChanged" Margin="4,0" />
+                <TextBlock x:Name="StickOuterDzLabel" Grid.Column="2" Text="0%" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
+              </Grid>
+              <Grid ColumnDefinitions="115,*,42">
+                <TextBlock Text="Anti-Deadzone:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <Slider x:Name="StickAntiDzSlider" Grid.Column="1" Minimum="0" Maximum="20" Value="0"
+                        ValueChanged="OnStickTuningSliderChanged" Margin="4,0" />
+                <TextBlock x:Name="StickAntiDzLabel" Grid.Column="2" Text="0%" VerticalAlignment="Center" HorizontalAlignment="Right" FontWeight="SemiBold" />
                 </Grid>
               </StackPanel>
             </Border>
@@ -238,6 +282,11 @@
                   <CheckBox x:Name="StartWithWinChk" Content="Launch at Windows Startup"
                             IsCheckedChanged="OnAppBehaviorChanged" />
                 </WrapPanel>
+                <Grid ColumnDefinitions="*,145">
+                  <TextBlock Text="BT Idle Auto-Sleep Timeout:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                  <ComboBox x:Name="IdleSleepCombo" Grid.Column="1" HorizontalAlignment="Stretch"
+                            SelectionChanged="OnIdleSleepChanged" />
+                </Grid>
               </StackPanel>
             </Border>
           </Grid>
@@ -275,6 +324,8 @@
                 <TextBlock x:Name="TouchTxt" Classes="dim" Text="Touch 0: -- | Touch 1: --" />
                 <TextBlock x:Name="GyroTxt" Text="Gyro  (X, Y, Z): 0, 0, 0" FontFamily="Consolas" FontSize="12" />
                 <TextBlock x:Name="AccelTxt" Text="Accel (X, Y, Z): 0, 0, 0" FontFamily="Consolas" FontSize="12" />
+                <TextBlock x:Name="TesterRateTxt" Text="Link Rate: BT Rx -- Hz | USB Target 1000 Hz" FontFamily="Consolas" FontSize="12"
+                           Foreground="{DynamicResource NavActiveFgBrush}" />
               </StackPanel>
             </Grid>
           </Border>
@@ -311,6 +362,21 @@
               </StackPanel>
             </Border>
           </Grid>
+
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Classes="hdr" Text="Stick Circularity Error Test (16-Sector Radial Accuracy)" VerticalAlignment="Center" />
+                <Button x:Name="BtnCircStart" Grid.Column="1" Content="Start Test" Click="OnCircTestToggleClick" Classes="accent" Margin="0,0,8,0" />
+                <Button Grid.Column="2" Content="Reset" Click="OnCircResetClick" />
+              </Grid>
+              <TextBlock Classes="dim" Text="Click Start Test, then slowly rotate Left &amp; Right sticks around the outer rim for a full 360° sweep." TextWrapping="Wrap" />
+              <Grid ColumnDefinitions="*,*">
+                <TextBlock x:Name="CircLResultTxt" Text="Left Stick Avg Error: -- (0/16 sectors)" FontFamily="Consolas" FontSize="12" />
+                <TextBlock x:Name="CircRResultTxt" Grid.Column="1" Text="Right Stick Avg Error: -- (0/16 sectors)" FontFamily="Consolas" FontSize="12" />
+              </Grid>
+            </StackPanel>
+          </Border>
         </StackPanel>
       </ScrollViewer>
 
@@ -358,6 +424,11 @@
               </Grid>
               <WrapPanel Orientation="Horizontal">
                 <Button Content="Test Controller Speaker Audio" Click="OnTestSpeakerClick" Classes="accent" Margin="0,0,8,4" />
+                <Button Content="Open Windows Sound Settings" Click="OnOpenSoundSettingsClick" Margin="0,0,8,4" />
+                <Border Classes="pill" VerticalAlignment="Center" Margin="0,0,0,4">
+                  <TextBlock x:Name="SpeakerStreamBadgeTxt" Text="USB Audio Stream: Idle" FontSize="11" FontWeight="SemiBold"
+                             Foreground="{DynamicResource TextMutedBrush}" />
+                </Border>
               </WrapPanel>
             </StackPanel>
           </Border>

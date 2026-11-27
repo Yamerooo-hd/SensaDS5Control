@@ -13,7 +13,9 @@ public sealed record TelemetrySample(
     double PeakHapticL, double PeakHapticR,
     byte Mode, uint Tx0x36, byte HapticGainPct, byte MicLedMode,
     byte UsbMode = 0, byte ImpulseMode = 1, byte ImpulseStrengthPct = 85,
-    bool BtControllerReady = true)
+    bool BtControllerReady = true,
+    ushort BtRxHz = 0,
+    bool UsbSpeakerStreaming = false)
 {
     public int DPad => Btn0 & 0x0F;
     public bool Square => (Btn0 & 0x10) != 0;
@@ -62,7 +64,9 @@ public sealed record TelemetrySample(
                 UsbMode: p.Length > 32 ? byte.Parse(p[32]) : (byte)0,
                 ImpulseMode: p.Length > 33 ? byte.Parse(p[33]) : (byte)1,
                 ImpulseStrengthPct: p.Length > 34 ? byte.Parse(p[34]) : (byte)85,
-                BtControllerReady: p.Length > 35 ? p[35] == "1" : true
+                BtControllerReady: p.Length > 35 ? p[35] == "1" : true,
+                BtRxHz: p.Length > 36 && ushort.TryParse(p[36].Trim(), out var rxHz) ? rxHz : (ushort)0,
+                UsbSpeakerStreaming: p.Length > 37 && p[37].Trim() == "1"
             );
             return true;
         }
@@ -92,7 +96,11 @@ public sealed record PicoConfigSample(
     bool HasBondedKey = false,
     int UsbPollRateHz = 1000,
     int SpeakerVolumePct = 100,
-    int SpeakerGain = 6)
+    int SpeakerGain = 6,
+    int IdleSleepMin = 10,
+    int StickCurve = 0,
+    int StickOuterDzPct = 0,
+    int StickAntiDzPct = 0)
 {
     public static bool TryParse(string line, out PicoConfigSample cfg)
     {
@@ -106,6 +114,10 @@ public sealed record PicoConfigSample(
             if (parsedPoll is not (250 or 500 or 1000)) parsedPoll = 1000;
             int spkVol = (p.Length > 18 && int.TryParse(p[18].Trim(), out var sv)) ? Math.Clamp(sv, 0, 100) : 100;
             int spkGain = (p.Length > 19 && int.TryParse(p[19].Trim(), out var sg)) ? Math.Clamp(sg, 1, 7) : 6;
+            int idleSleep = (p.Length > 20 && int.TryParse(p[20].Trim(), out var isl)) ? Math.Clamp(isl, 0, 60) : 10;
+            int curve = (p.Length > 21 && int.TryParse(p[21].Trim(), out var sc)) ? Math.Clamp(sc, 0, 2) : 0;
+            int outerDz = (p.Length > 22 && int.TryParse(p[22].Trim(), out var odz)) ? Math.Clamp(odz, 0, 15) : 0;
+            int antiDz = (p.Length > 23 && int.TryParse(p[23].Trim(), out var adz)) ? Math.Clamp(adz, 0, 20) : 0;
             cfg = new PicoConfigSample(
                 IsFreshFlash: p[1] == "1",
                 UsbMode: byte.Parse(p[2]),
@@ -125,7 +137,11 @@ public sealed record PicoConfigSample(
                 HasBondedKey: p.Length > 16 && p[16].Trim() == "1",
                 UsbPollRateHz: parsedPoll,
                 SpeakerVolumePct: spkVol,
-                SpeakerGain: spkGain);
+                SpeakerGain: spkGain,
+                IdleSleepMin: idleSleep,
+                StickCurve: curve,
+                StickOuterDzPct: outerDz,
+                StickAntiDzPct: antiDz);
             return true;
         }
         catch

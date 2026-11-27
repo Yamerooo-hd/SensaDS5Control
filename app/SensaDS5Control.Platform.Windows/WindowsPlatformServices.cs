@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.Diagnostics;
 using System.IO.Ports;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -173,6 +174,45 @@ public sealed class WindowsPlatformServices : IPlatformServices
             return key?.GetValue(RunValueName) is string s && !string.IsNullOrWhiteSpace(s);
         }
         catch { return false; }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    public string? GetForegroundProcessName()
+    {
+        try
+        {
+            IntPtr hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero) return null;
+            GetWindowThreadProcessId(hwnd, out uint pid);
+            if (pid == 0) return null;
+            using var proc = Process.GetProcessById((int)pid);
+            return proc.ProcessName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void OpenSoundSettings()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("ms-settings:apps-volume") { UseShellExecute = true });
+        }
+        catch
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("mmsys.cpl") { UseShellExecute = true });
+            }
+            catch { }
+        }
     }
 
     public void SetStartWithWindows(bool enabled, bool startMinimized = true)

@@ -69,6 +69,10 @@ struct DspConfig {
     uint8_t impulse_strength_pct = 85;                            // 0..100% intensity for synthesized 0x26 triggers
     uint8_t speaker_volume_pct = 100;                             // Controller speaker hardware volume (0..100% -> 0x00..0x64)
     uint8_t speaker_gain = 6;                                     // Hardware preamp + PCM boost (1..7, default 6 for quiet speakers)
+    uint8_t idle_sleep_min = 10;                                  // Standalone idle disconnect timer in minutes (0=off, 1..60)
+    uint8_t stick_curve = 0;                                      // 0=Linear, 1=Precision, 2=Aggressive
+    uint8_t stick_outer_dz_pct = 0;                               // 0..15% outer deadzone saturation
+    uint8_t stick_anti_dz_pct = 0;                                // 0..20% inner anti-deadzone jump
 };
 
 struct HostOutputState {
@@ -128,6 +132,7 @@ struct Telemetry {
     uint8_t last_sent_left = 0;
     uint8_t last_r2_mode = 0;
     uint8_t last_l2_mode = 0;
+    uint16_t bt_rx_hz = 0;
 
     SdpSummary sdp{};
 };
