@@ -17,9 +17,6 @@ public partial class MainWindow : Window
     private readonly PicoBridgeClient _pico = new();
     private readonly MouseMapper _mouse = new();
     private readonly AppSettings _settings;
-    private readonly StringBuilder _logSb = new();
-    private readonly object _logLock = new();
-    private readonly DispatcherTimer _logFlushTimer;
     private readonly DispatcherTimer _hotplugTimer;
 
     private TrayIcon? _trayIcon;
@@ -28,7 +25,6 @@ public partial class MainWindow : Window
     private bool _reallyClosing;
     private bool _flashingBusy;
 
-    private volatile bool _logDirty;
     private int _uiTelemetryPending;
     private int _hotplugBusy;
     private bool _wasMicBtn;
@@ -70,10 +66,6 @@ public partial class MainWindow : Window
             }
         };
 
-        _logFlushTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
-        _logFlushTimer.Tick += (_, _) => FlushConsoleLogIfDirty();
-        _logFlushTimer.Start();
-
         _hotplugTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _hotplugTimer.Tick += (_, _) => _ = PollPicoUsbHotplugAsync();
         _hotplugTimer.Start();
@@ -81,7 +73,6 @@ public partial class MainWindow : Window
         _pico.ConnectionChanged += OnPicoConnectionChanged;
         _pico.TelemetryReceived += OnTelemetryReceived;
         _pico.ConfigReceived += OnPicoConfigReceived;
-        _pico.LogLineReceived += OnLogReceived;
 
         UpdateMicButtonText();
         _ = PollPicoUsbHotplugAsync();
@@ -139,39 +130,6 @@ public partial class MainWindow : Window
         });
     }
 
-    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.D &&
-            e.KeyModifiers.HasFlag(KeyModifiers.Control) &&
-            e.KeyModifiers.HasFlag(KeyModifiers.Shift))
-        {
-            SetDeveloperMode(!_settings.DeveloperMode);
-            e.Handled = true;
-        }
-    }
-
-    private void OnDeveloperModeChanged(object? sender, RoutedEventArgs e)
-    {
-        if (_loadingUi) return;
-        SetDeveloperMode(DeveloperModeChk.IsChecked == true);
-    }
-
-    private void SetDeveloperMode(bool enabled)
-    {
-        _settings.DeveloperMode = enabled;
-        _settings.Save();
-
-        _loadingUi = true;
-        DeveloperModeChk.IsChecked = enabled;
-        _loadingUi = false;
-
-        NavConsoleBtn.IsVisible = enabled;
-        if (!enabled && _activeNavIndex == 6)
-        {
-            SelectNavPage(0);
-        }
-    }
-
     private void OnNavClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is string tagStr && int.TryParse(tagStr, out int idx))
@@ -181,8 +139,8 @@ public partial class MainWindow : Window
     private void SelectNavPage(int idx)
     {
         _activeNavIndex = idx;
-        Control[] pages = [Page0, Page1, Page2, Page3, Page4, Page5, Page6];
-        Button[] navBtns = [NavDashBtn, NavTesterBtn, NavHapticsBtn, NavTriggersBtn, NavLightingBtn, NavFirmwareBtn, NavConsoleBtn];
+        Control[] pages = [Page0, Page1, Page2, Page3, Page4, Page5];
+        Button[] navBtns = [NavDashBtn, NavTesterBtn, NavHapticsBtn, NavTriggersBtn, NavLightingBtn, NavFirmwareBtn];
         for (int i = 0; i < pages.Length; i++)
         {
             pages[i].IsVisible = i == idx;
@@ -268,11 +226,6 @@ public partial class MainWindow : Window
         bool autostartNow = _platform.GetStartWithWindows();
         _settings.StartWithWindows = autostartNow;
         StartWithWinChk.IsChecked = autostartNow;
-
-        DeveloperModeChk.IsChecked = _settings.DeveloperMode;
-        NavConsoleBtn.IsVisible = _settings.DeveloperMode;
-
-        TokenBox.Text = _settings.GitHubToken;
 
         _mouse.TouchpadMouseEnabled = _settings.TouchpadMouse;
         _mouse.TouchpadSensitivity = _settings.TouchpadSens;
@@ -872,30 +825,6 @@ public partial class MainWindow : Window
         TouchTxt.Text = $"Touch 0: {(s.Touch0Down ? $"{s.Touch0X},{s.Touch0Y}" : "--")} | Touch 1: {(s.Touch1Down ? $"{s.Touch1X},{s.Touch1Y}" : "--")}";
     }
 
-    private void OnLogReceived(string line)
-    {
-        lock (_logLock)
-        {
-            _logSb.AppendLine(line);
-            if (_logSb.Length > 12000) _logSb.Remove(0, _logSb.Length - 8000);
-            _logDirty = true;
-        }
-    }
-
-    private void FlushConsoleLogIfDirty()
-    {
-        if (!_logDirty) return;
-        string snap;
-        lock (_logLock)
-        {
-            if (!_logDirty) return;
-            _logDirty = false;
-            snap = _logSb.ToString();
-        }
-        ConsoleLogBox.Text = snap;
-        ConsoleLogBox.CaretIndex = snap.Length;
-    }
-
     private void OnQuickTouchMouseClick(object? sender, RoutedEventArgs e)
     {
         bool on = QuickTouchMouseBtn.IsChecked == true;
@@ -1155,25 +1084,27 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnUpdateAppClick(object? sender, RoutedEventArgs e)
+    private async void OnUpdateFromReleaseClick(object? sender, RoutedEventArgs e)
     {
-        UpdaterStatusTxt.Text = "Downloading latest SensaDS5Control.exe from GitHub...";
+        BtnUpdateLatestRelease.IsEnabled = false;
+        UpdaterStatusTxt.Text = "Checking latest GitHub release...";
         try
         {
-            var exeBytes = await GitHubUpdater.DownloadLatestAppExeBytesAsync(_settings.GitHubToken, CancellationToken.None);
-            if (exeBytes == null || exeBytes.Length < 100000)
+            var (exeBytes, tagName, errorHint) = await GitHubUpdater.DownloadLatestReleaseExeBytesAsync(CancellationToken.None);
+            if (exeBytes == null)
             {
-                const string errMsg = "No app build found (paste GitHub token for Private repo updates).";
-                UpdaterStatusTxt.Text = errMsg;
-                SubStatusText.Text = errMsg;
+                string msg = errorHint ?? "No release build available yet.";
+                UpdaterStatusTxt.Text = msg;
+                SubStatusText.Text = msg;
                 return;
             }
             var currentExe = Environment.ProcessPath;
             if (string.IsNullOrEmpty(currentExe) || !currentExe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             {
-                UpdaterStatusTxt.Text = "Self-update only applies when running packaged SensaDS5Control.exe.";
+                UpdaterStatusTxt.Text = $"Latest release {tagName} ready — self-update applies to packaged SensaDS5Control.exe.";
                 return;
             }
+            UpdaterStatusTxt.Text = $"Installing release {tagName}...";
             var staged = currentExe + ".new";
             await File.WriteAllBytesAsync(staged, exeBytes);
             var bat = Path.Combine(Path.GetTempPath(), "sensads5_update.cmd");
@@ -1188,36 +1119,13 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            UpdaterStatusTxt.Text = $"App update failed: {ex.Message}";
+            UpdaterStatusTxt.Text = $"Release update failed: {ex.Message}";
             SubStatusText.Text = UpdaterStatusTxt.Text;
         }
-    }
-
-    private void OnCmdStatusClick(object? s, RoutedEventArgs e) => _pico.SendCommand("status");
-    private void OnCmdDbgClick(object? s, RoutedEventArgs e) => _pico.SendCommand("dbg");
-    private void OnCmdGetCfgClick(object? s, RoutedEventArgs e) => _pico.RequestConfig();
-    private void OnBtMonToggleClick(object? s, RoutedEventArgs e) => _pico.SetBtMon(BtMonToggle.IsChecked == true);
-
-    private void OnSaveTokenClick(object? s, RoutedEventArgs e)
-    {
-        _settings.GitHubToken = TokenBox.Text ?? "";
-        _settings.Save();
-        UpdaterStatusTxt.Text = "GitHub token saved.";
-    }
-
-    private void OnSendCliClick(object? s, RoutedEventArgs e) => SendCliInput();
-
-    private void OnCliKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter) SendCliInput();
-    }
-
-    private void SendCliInput()
-    {
-        var txt = CliInputBox.Text?.Trim();
-        if (string.IsNullOrEmpty(txt)) return;
-        CliInputBox.Text = "";
-        _pico.SendCommand(txt);
+        finally
+        {
+            BtnUpdateLatestRelease.IsEnabled = true;
+        }
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -1240,7 +1148,6 @@ public partial class MainWindow : Window
         }
         _fwActionCts?.Cancel();
         _hotplugTimer.Stop();
-        _logFlushTimer.Stop();
         _mouse.ReleaseAllButtons(_platform);
         _pico.Dispose();
         base.OnClosed(e);

@@ -5,7 +5,6 @@
         Title="SensaDS5Control — Cosmic Byte Sensa Wireless Suite"
         Icon="/Assets/app_icon.ico"
         Width="1150" Height="750" MinWidth="940" MinHeight="640"
-        KeyDown="OnWindowKeyDown"
         Background="{DynamicResource AppBgBrush}">
 
   <Grid ColumnDefinitions="265,*">
@@ -88,12 +87,6 @@
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <PathIcon Width="16" Height="16" Data="M 7,2 L 17,2 L 19,5 L 19,19 L 17,22 L 7,22 L 5,19 L 5,5 Z M 9,7 L 15,7 L 15,11 L 9,11 Z M 9,14 L 15,14 L 15,16 L 9,16 Z" />
                 <TextBlock Text="Firmware &amp; Pico" VerticalAlignment="Center" />
-              </StackPanel>
-            </Button>
-            <Button x:Name="NavConsoleBtn" Classes="nav" Click="OnNavClick" Tag="6" IsVisible="False">
-              <StackPanel Orientation="Horizontal" Spacing="10">
-                <PathIcon Width="16" Height="16" Data="M 4,4 L 20,4 A 2,2 0 0 1 22,6 L 22,18 A 2,2 0 0 1 20,20 L 4,20 A 2,2 0 0 1 2,18 L 2,6 A 2,2 0 0 1 4,4 Z M 6,9 L 10,12 L 6,15 M 12,15 L 18,15" />
-                <TextBlock Text="Dev Console" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
           </StackPanel>
@@ -556,48 +549,25 @@
                 <Border Classes="pill" Margin="0,0,6,6"><TextBlock Text="4× BOOTSEL: Reset All Bonds" FontSize="11" /></Border>
                 <Border Classes="pill" Margin="0,0,0,6"><TextBlock Text="Hold 2s BOOTSEL: Firmware Flash Mode" FontSize="11" /></Border>
               </WrapPanel>
-              <Border Height="1" Background="{DynamicResource BorderSubtleBrush}" />
-              <CheckBox x:Name="DeveloperModeChk" Content="Enable Developer Console &amp; Diagnostics (Ctrl+Shift+D)"
-                        IsCheckedChanged="OnDeveloperModeChanged" />
+            </StackPanel>
+          </Border>
+
+          <!-- Card 4: App Updates from Latest GitHub Release -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="hdr" Text="App Updates (Latest Release)" />
+                  <TextBlock x:Name="UpdaterStatusTxt" Classes="dim"
+                             Text="Checks the latest GitHub release for SensaDS5Control updates." TextWrapping="Wrap" />
+                </StackPanel>
+                <Button x:Name="BtnUpdateLatestRelease" Grid.Column="1" Content="Update from Latest Release"
+                        Click="OnUpdateFromReleaseClick" Classes="accent" VerticalAlignment="Center" />
+              </Grid>
             </StackPanel>
           </Border>
         </StackPanel>
       </ScrollViewer>
-
-      <!-- PAGE 6: DEVELOPER CONSOLE (Hidden unless Developer Mode enabled) -->
-      <Grid x:Name="Page6" RowDefinitions="Auto,*,Auto" IsVisible="False">
-        <StackPanel Spacing="12" Margin="0,0,0,10">
-          <StackPanel Spacing="2">
-            <TextBlock Classes="title" Text="Developer Console &amp; Online Updates" />
-            <TextBlock Classes="dim" Text="Raw Pico CLI stream, diagnostics, and optional GitHub self-updater." />
-          </StackPanel>
-          <Border Classes="card">
-            <StackPanel Spacing="8">
-              <WrapPanel Orientation="Horizontal">
-                <Button Content="Status" Click="OnCmdStatusClick" Margin="0,0,8,6" />
-                <Button Content="Debug Dump" Click="OnCmdDbgClick" Margin="0,0,8,6" />
-                <ToggleButton x:Name="BtMonToggle" Content="Input Diff Monitor" Click="OnBtMonToggleClick" Margin="0,0,8,6" />
-                <Button Content="Refresh Pico Config" Click="OnCmdGetCfgClick" Margin="0,0,0,6" />
-              </WrapPanel>
-              <WrapPanel Orientation="Horizontal">
-                <TextBox x:Name="TokenBox" Width="300" Watermark="Optional GitHub Token (Private Repo Updates)" PasswordChar="•" Margin="0,0,8,6" />
-                <Button Content="Save Token" Click="OnSaveTokenClick" Margin="0,0,8,6" />
-                <Button Content="Update Desktop App (.exe)" Click="OnUpdateAppClick" Classes="accent" Margin="0,0,0,6" />
-              </WrapPanel>
-              <TextBlock x:Name="UpdaterStatusTxt" Classes="dim" Text="Repo: Yamerooo-hd/SensaDS5Control" />
-            </StackPanel>
-          </Border>
-        </StackPanel>
-
-        <TextBox x:Name="ConsoleLogBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True"
-                 FontFamily="Consolas" FontSize="12" Background="{DynamicResource ConsoleBgBrush}"
-                 BorderBrush="{DynamicResource BorderSubtleBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
-
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
-          <TextBox x:Name="CliInputBox" Watermark="Send raw command to Pico (e.g. status, deadzone 4, save)..." KeyDown="OnCliKeyDown" Margin="0,0,8,0" />
-          <Button Grid.Column="1" Content="Send" Click="OnSendCliClick" Classes="accent" />
-        </Grid>
-      </Grid>
     </Grid>
   </Grid>
 </Window>
