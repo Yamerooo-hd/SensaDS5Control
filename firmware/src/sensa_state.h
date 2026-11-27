@@ -10,16 +10,14 @@
 namespace sensa {
 
 enum class UsbMode : uint8_t {
-    DualSense = 0,   // 054C:0CE6 DualSense (4ch Audio + HID + CDC)
-    Xbox360 = 1,     // 045E:028E Xbox 360 Wired XInput + CDC
-    XboxSeries = 2,  // 045E:0B12 Experimental Xbox Series [MS-GIPUSB] + Impulse Triggers + CDC
+    DualSense = 0, // 054C:0CE6 DualSense (4ch Audio + HID + CDC)
+    Xbox360 = 1,   // 1209:DB05 Xbox 360 Wired XInput + CDC
 };
 
 inline char const *usb_mode_name(UsbMode m) {
     switch (m) {
         case UsbMode::DualSense: return "DualSense (054C:0CE6)";
         case UsbMode::Xbox360: return "Xbox 360 XInput (1209:DB05)";
-        case UsbMode::XboxSeries: return "Xbox Series GIP [Experimental] (1209:DB06)";
         default: return "unknown";
     }
 }

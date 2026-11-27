@@ -12,11 +12,8 @@
 
 #define XUSB360_EP_IN 0x81
 #define XUSB360_EP_OUT 0x02
-#define XBOXGIP_EP_IN 0x81
-#define XBOXGIP_EP_OUT 0x01
 
 #define MS_OS_VENDOR_CODE_X360 0x21
-#define MS_OS_VENDOR_CODE_XSERIES 0x90
 
 #ifdef __cplusplus
 extern "C" {

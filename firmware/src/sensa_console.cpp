@@ -56,6 +56,13 @@ bool eq_ci(char const *a, char const *b) {
     return *a == 0 && *b == 0;
 }
 
+int clamp_arg(char const *tok, int lo, int hi) {
+    int v = atoi(tok);
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
 void handle_command(char *line) {
     char *tokens[14]{};
     int argc = 0;
@@ -120,18 +127,15 @@ void handle_command(char *line) {
         }
         g_dsp_config.impulse_mode = m;
         if (argc >= 3) {
-            int s = atoi(tokens[2]);
-            g_dsp_config.impulse_strength_pct = static_cast<uint8_t>(s < 0 ? 0 : (s > 100 ? 100 : s));
+            g_dsp_config.impulse_strength_pct = static_cast<uint8_t>(clamp_arg(tokens[2], 0, 100));
         }
         bt_request_state_update();
         console_printf("[IMPTRIG] mode=%u strength=%u%%\n",
                        static_cast<unsigned>(g_dsp_config.impulse_mode),
                        g_dsp_config.impulse_strength_pct);
     } else if (eq_ci(cmd, "imptrigtest")) {
-        int pct = argc >= 2 ? atoi(tokens[1]) : 85;
-        int ms = argc >= 3 ? atoi(tokens[2]) : 600;
-        pct = pct < 5 ? 5 : (pct > 100 ? 100 : pct);
-        ms = ms < 50 ? 50 : (ms > 3000 ? 3000 : ms);
+        int pct = argc >= 2 ? clamp_arg(tokens[1], 5, 100) : 85;
+        int ms = argc >= 3 ? clamp_arg(tokens[2], 50, 3000) : 600;
         bt_trigger_test_impulse(static_cast<uint8_t>(pct), static_cast<uint32_t>(ms));
         console_printf("[TEST] Impulse Triggers (0x26 L2+R2) %d%% for %d ms\n", pct, ms);
     } else if (eq_ci(cmd, "mode") && argc >= 2) {
@@ -148,21 +152,15 @@ void handle_command(char *line) {
         }
         console_printf("[MODE] Switched live to: %s\n", haptic_mode_name(g_haptic_mode));
     } else if (eq_ci(cmd, "pulse")) {
-        int r = argc >= 2 ? atoi(tokens[1]) : 180;
-        int l = argc >= 3 ? atoi(tokens[2]) : r;
-        int ms = argc >= 4 ? atoi(tokens[3]) : 350;
-        r = r < 0 ? 0 : (r > 255 ? 255 : r);
-        l = l < 0 ? 0 : (l > 255 ? 255 : l);
-        ms = ms < 20 ? 20 : (ms > 5000 ? 5000 : ms);
+        int r = argc >= 2 ? clamp_arg(tokens[1], 0, 255) : 180;
+        int l = argc >= 3 ? clamp_arg(tokens[2], 0, 255) : r;
+        int ms = argc >= 4 ? clamp_arg(tokens[3], 20, 5000) : 350;
         dsp_trigger_test_rumble(static_cast<uint8_t>(r), static_cast<uint8_t>(l), static_cast<uint32_t>(ms));
         console_printf("[TEST] 0x31 pulse R=%d L=%d for %d ms\n", r, l, ms);
     } else if (eq_ci(cmd, "test32") || eq_ci(cmd, "test36") || eq_ci(cmd, "test39")) {
-        int amp = argc >= 2 ? atoi(tokens[1]) : 100;
-        int hz = argc >= 3 ? atoi(tokens[2]) : 90;
-        int ms = argc >= 4 ? atoi(tokens[3]) : 600;
-        amp = amp < 1 ? 1 : (amp > 127 ? 127 : amp);
-        hz = hz < 15 ? 15 : (hz > 400 ? 400 : hz);
-        ms = ms < 30 ? 30 : (ms > 5000 ? 5000 : ms);
+        int amp = argc >= 2 ? clamp_arg(tokens[1], 1, 127) : 100;
+        int hz = argc >= 3 ? clamp_arg(tokens[2], 15, 400) : 90;
+        int ms = argc >= 4 ? clamp_arg(tokens[3], 30, 5000) : 600;
         HapticMode proto = eq_ci(cmd, "test32") ? HapticMode::Mode32SAxense
                          : eq_ci(cmd, "test36") ? HapticMode::Mode36Haptics
                                                 : HapticMode::Mode39Probe;
@@ -171,13 +169,12 @@ void handle_command(char *line) {
                        haptic_mode_name(proto), amp, hz, ms);
     } else if (eq_ci(cmd, "tune") && argc >= 3) {
         char const *k = tokens[1];
-        int v = atoi(tokens[2]);
-        if (eq_ci(k, "floor")) g_dsp_config.noise_floor_pct = static_cast<uint8_t>(v < 0 ? 0 : (v > 50 ? 50 : v));
-        else if (eq_ci(k, "gain")) g_dsp_config.gain_x10 = static_cast<uint16_t>(v < 1 ? 1 : (v > 100 ? 100 : v));
-        else if (eq_ci(k, "min")) g_dsp_config.min_rumble = static_cast<uint8_t>(v < 0 ? 0 : (v > 150 ? 150 : v));
-        else if (eq_ci(k, "hold")) g_dsp_config.hold_ms = static_cast<uint16_t>(v < 10 ? 10 : (v > 500 ? 500 : v));
-        else if (eq_ci(k, "decay")) g_dsp_config.decay_ms = static_cast<uint16_t>(v < 10 ? 10 : (v > 500 ? 500 : v));
-        else if (eq_ci(k, "hgain")) g_dsp_config.haptic_gain_pct = static_cast<uint8_t>(v < 25 ? 25 : (v > 255 ? 255 : v));
+        if (eq_ci(k, "floor")) g_dsp_config.noise_floor_pct = static_cast<uint8_t>(clamp_arg(tokens[2], 0, 50));
+        else if (eq_ci(k, "gain")) g_dsp_config.gain_x10 = static_cast<uint16_t>(clamp_arg(tokens[2], 1, 100));
+        else if (eq_ci(k, "min")) g_dsp_config.min_rumble = static_cast<uint8_t>(clamp_arg(tokens[2], 0, 150));
+        else if (eq_ci(k, "hold")) g_dsp_config.hold_ms = static_cast<uint16_t>(clamp_arg(tokens[2], 10, 500));
+        else if (eq_ci(k, "decay")) g_dsp_config.decay_ms = static_cast<uint16_t>(clamp_arg(tokens[2], 10, 500));
+        else if (eq_ci(k, "hgain")) g_dsp_config.haptic_gain_pct = static_cast<uint8_t>(clamp_arg(tokens[2], 25, 255));
         else {
             console_printf("[TUNE] Keys: floor | gain (x10) | min | hold | decay | hgain\n");
             return;
@@ -191,9 +188,9 @@ void handle_command(char *line) {
             bt_clear_override_led();
             console_printf("[LED] Released to game (AUTO)\n");
         } else if (argc >= 4) {
-            uint8_t r = static_cast<uint8_t>(atoi(tokens[1]));
-            uint8_t g = static_cast<uint8_t>(atoi(tokens[2]));
-            uint8_t b = static_cast<uint8_t>(atoi(tokens[3]));
+            uint8_t r = static_cast<uint8_t>(clamp_arg(tokens[1], 0, 255));
+            uint8_t g = static_cast<uint8_t>(clamp_arg(tokens[2], 0, 255));
+            uint8_t b = static_cast<uint8_t>(clamp_arg(tokens[3], 0, 255));
             bt_set_override_led(r, g, b);
             console_printf("[LED] Sent R=%u G=%u B=%u\n", r, g, b);
         } else {

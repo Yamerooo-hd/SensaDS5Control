@@ -449,7 +449,7 @@ void fill_state_block(uint8_t p[63], bool allow_synth_motors, bool haptics_audio
         std::memcpy(p + 10, trig_r_override, 11);
         g_telemetry.last_r2_mode = trig_r_override[0];
         prev_imp_r_active = false;
-    } else if (g_usb_mode != UsbMode::DualSense || (p[0] & 0x04u) == 0) {
+    } else if (g_usb_mode != UsbMode::DualSense || (p[0] & 0x04u) == 0 || p[10] == 0x05 || p[10] == 0x00) {
         if (imp_r_pct > 0) {
             p[0] |= 0x04u;
             write_ds5_vibration_trig(p + 10, imp_r_pct);
@@ -468,7 +468,7 @@ void fill_state_block(uint8_t p[63], bool allow_synth_motors, bool haptics_audio
         std::memcpy(p + 21, trig_l_override, 11);
         g_telemetry.last_l2_mode = trig_l_override[0];
         prev_imp_l_active = false;
-    } else if (g_usb_mode != UsbMode::DualSense || (p[0] & 0x08u) == 0) {
+    } else if (g_usb_mode != UsbMode::DualSense || (p[0] & 0x08u) == 0 || p[21] == 0x05 || p[21] == 0x00) {
         if (imp_l_pct > 0) {
             p[0] |= 0x08u;
             write_ds5_vibration_trig(p + 21, imp_l_pct);
@@ -845,9 +845,24 @@ void l2cap_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet
         }
         case L2CAP_EVENT_CHANNEL_CLOSED: {
             uint16_t lcid = l2cap_event_channel_closed_get_local_cid(packet);
-            if (lcid == hid_ctrl_cid) { hid_ctrl_cid = 0; hid_ctrl_ready = false; g_telemetry.bt_control_ready = false; }
-            if (lcid == hid_intr_cid) { hid_intr_cid = 0; hid_intr_ready = false; g_telemetry.bt_interrupt_ready = false; }
-            if (!hid_ctrl_ready || !hid_intr_ready) usb_set_bt_ready(false);
+            if (lcid == hid_ctrl_cid) {
+                hid_ctrl_cid = 0;
+                hid_ctrl_ready = false;
+                ctrl_can_send_req = false;
+                g_telemetry.bt_control_ready = false;
+            }
+            if (lcid == hid_intr_cid) {
+                hid_intr_cid = 0;
+                hid_intr_ready = false;
+                intr_can_send_req = false;
+                audio_block_pending = false;
+                state_send_pending = false;
+                g_telemetry.bt_interrupt_ready = false;
+            }
+            if (!hid_ctrl_ready || !hid_intr_ready) {
+                hid_session_announced = false;
+                usb_set_bt_ready(false);
+            }
             break;
         }
         default:
@@ -904,6 +919,7 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
                 std::memcpy(g_telemetry.bt_addr, addr, 6);
                 std::memcpy(g_telemetry.bt_name, name_buf, sizeof(g_telemetry.bt_name));
                 outbound_connecting = true;
+                g_telemetry.bt_connecting = true;
                 uint8_t st = hci_send_cmd(
                     &hci_create_connection,
                     addr,
@@ -1370,6 +1386,7 @@ void bt_poll() {
     }
 
     // Pull next 64B DSP waveform block whenever ready (works even before rx0x31 unlocks)
+    static bool was_haptics_active = false;
     int8_t block[64];
     HapticMode wave_proto = g_haptic_mode;
     if (dsp_take_haptic_block(block, wave_proto)) {
@@ -1383,6 +1400,13 @@ void bt_poll() {
 
     // Re-sample clock after synchronous L2CAP callbacks inside bt_submit_haptic_waveform to prevent uint32 underflow
     now_us = time_us_32();
+
+    // Flush one clean 0x31 state packet when 0x36/0x39 audio-haptics ends so LEDs/triggers/classic rumble never stay stale
+    bool haptics_now = dsp_is_haptics_active();
+    if (was_haptics_active && !haptics_now) {
+        bt_request_state_update();
+    }
+    was_haptics_active = haptics_now;
 
     // Bounded initial 0x31 SetHapticsMode unlock retries (every 1s, max 4 times) when idle
     if (!rx_0x31_seen && unlock_boot_retries_left > 0 && !dsp_is_haptics_active() &&

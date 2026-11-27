@@ -31,7 +31,7 @@ extern "C" {
 
 #define CFG_TUD_ENDPOINT0_SIZE 64
 
-// Supports runtime DualSense (Audio+HID+CDC), Xbox 360 (XInput+CDC), Xbox Series (GIP+CDC)
+// Supports runtime DualSense (Audio+HID+CDC) and Xbox 360 (XInput+CDC)
 #define CFG_TUD_CDC 1
 #define CFG_TUD_MSC 0
 #define CFG_TUD_HID 1

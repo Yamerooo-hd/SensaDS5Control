@@ -71,7 +71,7 @@ int16_t axis_u8_to_xusb(uint8_t value, bool invert) {
 }
 
 // =========================================================================
-// Custom TinyUSB Vendor Class Driver for Xbox 360 & Xbox Series [MS-GIPUSB]
+// Custom TinyUSB Vendor Class Driver for Xbox 360 XInput
 // =========================================================================
 
 uint8_t xbox_rhport = 0;
@@ -80,59 +80,6 @@ uint8_t xbox_ep_out = 0;
 bool xbox_in_busy = false;
 CFG_TUD_MEM_ALIGN uint8_t xbox_rx_buf[64]{};
 CFG_TUD_MEM_ALIGN uint8_t xbox_tx_buf[64]{};
-
-// [MS-GIPUSB] Xbox Series State Machine
-enum class GipState : uint8_t {
-    Idle = 0,
-    Hello = 1,
-    Metadata = 2,
-    Active = 3,
-};
-
-GipState gip_state = GipState::Idle;
-uint8_t gip_cmd_seq = 1;
-uint8_t gip_data_seq = 1;
-uint8_t gip_meta_frag_idx = 0;
-bool gip_meta_waiting_ack = false;
-bool gip_prev_guide = false;
-uint32_t gip_last_hello_us = 0;
-uint32_t gip_last_status_us = 0;
-uint32_t gip_status_start_us = 0;
-uint32_t gip_last_input_us = 0;
-uint8_t gip_last_sent_14b[14]{};
-uint8_t gip_device_id[8]{};
-
-// Timed Direct Motor Command (0x09) expiry for Xbox Series
-uint32_t gip_motor_stop_at_us = 0;
-bool gip_motor_active = false;
-uint8_t gip_cur_l_main = 0;
-uint8_t gip_cur_r_main = 0;
-uint8_t gip_cur_l_trig = 0;
-uint8_t gip_cur_r_trig = 0;
-
-// Official Microsoft [MS-GIPUSB] Section 2.2.2 compiled 182-byte Gamepad Metadata blob
-// SupportsDeviceFirmwareVersions Major=1, Minor=0; Input 0x20 (14B), Output 0x09 (9B)
-static constexpr uint8_t kGipMetadata[182] = {
-    0x10, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xB6, 0x00,
-    0x77, 0x00, 0x16, 0x00, 0x1B, 0x00, 0x1C, 0x00, 0x23, 0x00, 0x29, 0x00, 0x46, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x06, 0x01, 0x02, 0x03,
-    0x04, 0x06, 0x07, 0x05, 0x01, 0x04, 0x05, 0x06, 0x0A, 0x01, 0x1A, 0x00, 0x57, 0x69, 0x6E, 0x64,
-    0x6F, 0x77, 0x73, 0x2E, 0x58, 0x62, 0x6F, 0x78, 0x2E, 0x49, 0x6E, 0x70, 0x75, 0x74, 0x2E, 0x47,
-    0x61, 0x6D, 0x65, 0x70, 0x61, 0x64, 0x03, 0x56, 0xFF, 0x76, 0x97, 0xFD, 0x9B, 0x81, 0x45, 0xAD,
-    0x45, 0xB6, 0x45, 0xBB, 0xA5, 0x26, 0xD6, 0x2C, 0x40, 0x2E, 0x08, 0xDF, 0x07, 0xE1, 0x45, 0xA5,
-    0xAB, 0xA3, 0x12, 0x7A, 0xF1, 0x97, 0xB5, 0xE7, 0x1F, 0xF3, 0xB8, 0x86, 0x73, 0xE9, 0x40, 0xA9,
-    0xF8, 0x2F, 0x21, 0x26, 0x3A, 0xCF, 0xB7, 0x02, 0x17, 0x00, 0x20, 0x0E, 0x00, 0x01, 0x00, 0x10,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17,
-    0x00, 0x09, 0x09, 0x00, 0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-
-uint8_t next_seq(uint8_t &s) {
-    uint8_t r = s++;
-    if (s == 0) s = 1;
-    if (r == 0) r = 1;
-    return r;
-}
 
 bool xbox_arm_out(uint8_t rhport) {
     if (xbox_ep_out == 0) return false;
@@ -155,20 +102,11 @@ uint8_t dpad_to_cardinal_mask(uint8_t dpad) {
     return mask;
 }
 
-void push_xbox_motors_to_bt(uint8_t l_main, uint8_t r_main, uint8_t l_trig, uint8_t r_trig) {
+void push_xbox_motors_to_bt(uint8_t l_main, uint8_t r_main) {
     std::memset(g_host_output.payload, 0, sizeof(g_host_output.payload));
     g_host_output.payload[0] = 0x03u; // CompatibleVibration | HapticsSelect
     g_host_output.payload[2] = r_main;
     g_host_output.payload[3] = l_main;
-
-    if (g_usb_mode == UsbMode::XboxSeries) {
-        g_host_output.payload[0] |= 0x0Cu; // RightTriggerEffect | LeftTriggerEffect
-        write_ds5_vibration_trig(g_host_output.payload + 10, r_trig);
-        write_ds5_vibration_trig(g_host_output.payload + 21, l_trig);
-        g_telemetry.last_r2_mode = r_trig ? 0x26 : 0x05;
-        g_telemetry.last_l2_mode = l_trig ? 0x26 : 0x05;
-    }
-
     g_host_output.len = 47;
     g_host_output.valid = true;
     g_host_output.last_rx_us = time_us_32();
@@ -204,129 +142,11 @@ void build_x360_input(uint8_t out20[20]) {
     write_i16_le(out20 + 12, axis_u8_to_xusb(b[3], true));
 }
 
-void build_gip_input_payload(uint8_t out14[14]) {
-    std::memset(out14, 0, 14);
-    uint8_t const *b = latest_input_report;
-    uint8_t b0 = 0;
-    uint8_t b1 = dpad_to_cardinal_mask(b[7] & 0x0Fu);
-    if (b[8] & 0x20u) b0 |= 0x04u; // Options -> Menu
-    if (b[8] & 0x10u) b0 |= 0x08u; // Create -> View
-    if (b[7] & 0x20u) b0 |= 0x10u; // Cross -> A
-    if (b[7] & 0x40u) b0 |= 0x20u; // Circle -> B
-    if (b[7] & 0x10u) b0 |= 0x40u; // Square -> X
-    if (b[7] & 0x80u) b0 |= 0x80u; // Triangle -> Y
-    if (b[8] & 0x01u) b1 |= 0x10u; // L1 -> LB
-    if (b[8] & 0x02u) b1 |= 0x20u; // R1 -> RB
-    if (b[8] & 0x40u) b1 |= 0x40u; // L3
-    if (b[8] & 0x80u) b1 |= 0x80u; // R3
-
-    out14[0] = b0;
-    out14[1] = b1;
-    uint16_t lt = static_cast<uint16_t>((b[4] * 1023u) / 255u);
-    uint16_t rt = static_cast<uint16_t>((b[5] * 1023u) / 255u);
-    write_u16_le(out14 + 2, lt);
-    write_u16_le(out14 + 4, rt);
-    write_i16_le(out14 + 6, axis_u8_to_xusb(b[0], false));
-    write_i16_le(out14 + 8, axis_u8_to_xusb(b[1], true));
-    write_i16_le(out14 + 10, axis_u8_to_xusb(b[2], false));
-    write_i16_le(out14 + 12, axis_u8_to_xusb(b[3], true));
-}
-
-bool send_gip_hello() {
-    uint8_t pkt[32]{};
-    pkt[0] = 0x02; // Hello Device
-    pkt[1] = 0x20; // System single packet, no ACK
-    pkt[2] = next_seq(gip_cmd_seq);
-    pkt[3] = 0x1C; // 28B payload
-    std::memcpy(pkt + 4, gip_device_id, 8);
-    write_u16_le(pkt + 12, 0x1209); // VID (must match USB descriptor)
-    write_u16_le(pkt + 14, 0xDB06); // PID (must match USB descriptor)
-    write_u16_le(pkt + 16, 0x0001); // FW Major = 1 (matches Metadata[0x27]=1)
-    write_u16_le(pkt + 18, 0x0000); // FW Minor = 0 (matches Metadata[0x28]=0)
-    write_u16_le(pkt + 20, 0x0001); // Build
-    write_u16_le(pkt + 22, 0x0000); // Revision
-    pkt[24] = 0x01; pkt[25] = 0x00; // HW version
-    pkt[26] = 0x01; pkt[27] = 0x00; // RF protocol 1.0
-    pkt[28] = 0x01; pkt[29] = 0x00; // Security protocol 1.0
-    pkt[30] = 0x01; pkt[31] = 0x00; // GIP 1.0
-    return xbox_send_pkt(pkt, sizeof(pkt));
-}
-
-bool send_gip_next_metadata_fragment() {
-    uint8_t pkt[64]{};
-    static uint8_t meta_seq = 1;
-    if (gip_meta_frag_idx == 0) {
-        meta_seq = next_seq(gip_cmd_seq);
-        pkt[0] = 0x04;
-        pkt[1] = 0xF0; // First fragment + ACME
-        pkt[2] = meta_seq;
-        pkt[3] = 58;
-        pkt[4] = 0x80u | (182u & 0x7Fu); // Total len LEB128 = 182 (0xB6)
-        pkt[5] = 182u >> 7;              // 0x01
-        std::memcpy(pkt + 6, kGipMetadata, 58);
-        gip_meta_frag_idx = 1;
-        gip_meta_waiting_ack = true;
-        return xbox_send_pkt(pkt, 64);
-    }
-    if (gip_meta_frag_idx == 1) {
-        pkt[0] = 0x04;
-        pkt[1] = 0xA0; // Middle fragment
-        pkt[2] = meta_seq;
-        pkt[3] = 0x80u | 58u;
-        pkt[4] = 0x00;
-        pkt[5] = 58;
-        std::memcpy(pkt + 6, kGipMetadata + 58, 58);
-        gip_meta_frag_idx = 2;
-        return xbox_send_pkt(pkt, 64);
-    }
-    if (gip_meta_frag_idx == 2) {
-        pkt[0] = 0x04;
-        pkt[1] = 0xA0; // Middle fragment
-        pkt[2] = meta_seq;
-        pkt[3] = 0x80u | 58u;
-        pkt[4] = 0x00;
-        pkt[5] = 116;
-        std::memcpy(pkt + 6, kGipMetadata + 116, 58);
-        gip_meta_frag_idx = 3;
-        return xbox_send_pkt(pkt, 64);
-    }
-    if (gip_meta_frag_idx == 3) {
-        pkt[0] = 0x04;
-        pkt[1] = 0xB0; // Last fragment + ACME
-        pkt[2] = meta_seq;
-        pkt[3] = 8;
-        pkt[4] = 0x80u | (174u & 0x7Fu);
-        pkt[5] = 174u >> 7;
-        std::memcpy(pkt + 6, kGipMetadata + 174, 8);
-        gip_meta_frag_idx = 4;
-        gip_meta_waiting_ack = true;
-        return xbox_send_pkt(pkt, 14);
-    }
-    return false;
-}
-
-bool send_gip_status() {
-    uint8_t pkt[8]{};
-    pkt[0] = 0x03;
-    pkt[1] = 0x20;
-    pkt[2] = next_seq(gip_cmd_seq);
-    pkt[3] = 0x04;
-    pkt[4] = 0xEC; // Connected + Wired power/full
-    pkt[5] = 0x00;
-    pkt[6] = 0x00;
-    pkt[7] = 0x00;
-    return xbox_send_pkt(pkt, sizeof(pkt));
-}
-
 void xbox_driver_init(void) {
     xbox_rhport = 0;
     xbox_ep_in = 0;
     xbox_ep_out = 0;
     xbox_in_busy = false;
-    gip_state = GipState::Idle;
-    gip_meta_frag_idx = 0;
-    gip_meta_waiting_ack = false;
-    gip_motor_active = false;
 }
 
 bool xbox_driver_deinit(void) {
@@ -340,12 +160,8 @@ void xbox_driver_reset(uint8_t rhport) {
 }
 
 uint16_t xbox_driver_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf, uint16_t max_len) {
-    if (desc_itf->bInterfaceNumber != XBOX_ITF_NUM || desc_itf->bInterfaceClass != TUSB_CLASS_VENDOR_SPECIFIC) {
-        return 0;
-    }
-    bool is_x360 = (g_usb_mode == UsbMode::Xbox360 && desc_itf->bInterfaceSubClass == 0x5D && desc_itf->bInterfaceProtocol == 0x01);
-    bool is_xseries = (g_usb_mode == UsbMode::XboxSeries && desc_itf->bInterfaceSubClass == 0x47 && desc_itf->bInterfaceProtocol == 0xD0);
-    if (!is_x360 && !is_xseries) {
+    if (desc_itf->bInterfaceNumber != XBOX_ITF_NUM || desc_itf->bInterfaceClass != TUSB_CLASS_VENDOR_SPECIFIC ||
+        g_usb_mode != UsbMode::Xbox360 || desc_itf->bInterfaceSubClass != 0x5D || desc_itf->bInterfaceProtocol != 0x01) {
         return 0;
     }
 
@@ -376,26 +192,9 @@ uint16_t xbox_driver_open(uint8_t rhport, tusb_desc_interface_t const *desc_itf,
     xbox_in_busy = false;
     xbox_arm_out(rhport);
 
-    if (is_x360) {
-        uint8_t rpt[20]{};
-        build_x360_input(rpt);
-        xbox_send_pkt(rpt, sizeof(rpt));
-    } else {
-        uint32_t seed = time_us_32() ^ (static_cast<uint32_t>(board_uid.id[0]) << 24) ^
-                        (static_cast<uint32_t>(board_uid.id[3]) << 16) ^
-                        (static_cast<uint32_t>(board_uid.id[5]) << 8) ^ board_uid.id[7];
-        gip_device_id[0] = static_cast<uint8_t>(seed & 0xFFu);
-        gip_device_id[1] = static_cast<uint8_t>((seed >> 8) & 0xFFu);
-        gip_device_id[2] = static_cast<uint8_t>((seed >> 16) & 0xFFu);
-        gip_device_id[3] = static_cast<uint8_t>((seed >> 24) & 0xFFu);
-        gip_device_id[4] = 0xFB;
-        gip_device_id[5] = 0xFF;
-        gip_device_id[6] = 0x00;
-        gip_device_id[7] = 0x00;
-        gip_state = GipState::Hello;
-        gip_last_hello_us = time_us_32();
-        send_gip_hello();
-    }
+    uint8_t rpt[20]{};
+    build_x360_input(rpt);
+    xbox_send_pkt(rpt, sizeof(rpt));
     return consumed;
 }
 
@@ -406,80 +205,13 @@ bool xbox_driver_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_req
 bool xbox_driver_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes) {
     if (ep_addr == xbox_ep_in) {
         xbox_in_busy = false;
-        if (g_usb_mode == UsbMode::XboxSeries && gip_state == GipState::Metadata && !gip_meta_waiting_ack &&
-            gip_meta_frag_idx < 4) {
-            send_gip_next_metadata_fragment();
-        }
         return true;
     }
     if (ep_addr != xbox_ep_out) return true;
 
-    if (result == XFER_RESULT_SUCCESS && xferred_bytes > 0) {
-        if (g_usb_mode == UsbMode::Xbox360) {
-            if (xferred_bytes >= 8 && xbox_rx_buf[0] == 0x00 && xbox_rx_buf[1] == 0x08) {
-                push_xbox_motors_to_bt(xbox_rx_buf[3], xbox_rx_buf[4], 0, 0);
-            }
-        } else if (g_usb_mode == UsbMode::XboxSeries && xferred_bytes >= 4) {
-            uint8_t msg = xbox_rx_buf[0];
-            if (msg == 0x01) { // ACK
-                if (gip_state == GipState::Metadata) {
-                    gip_meta_waiting_ack = false;
-                    if (gip_meta_frag_idx < 4) {
-                        send_gip_next_metadata_fragment();
-                    } else {
-                        gip_state = GipState::Active;
-                        gip_status_start_us = time_us_32();
-                        gip_last_status_us = gip_status_start_us;
-                        send_gip_status();
-                        console_printf("[GIP] Metadata ACKed -> Active\n");
-                    }
-                }
-            } else if (msg == 0x04) { // Metadata Request
-                gip_state = GipState::Metadata;
-                gip_meta_frag_idx = 0;
-                gip_meta_waiting_ack = false;
-                console_printf("[GIP] Host Metadata Request -> streaming 182B blob\n");
-                send_gip_next_metadata_fragment();
-            } else if (msg == 0x05 && xferred_bytes >= 5) { // Set Device State
-                uint8_t st = xbox_rx_buf[4];
-                console_printf("[GIP] Set Device State = 0x%02X\n", st);
-                if (st == 0x00) { // Start
-                    gip_state = GipState::Active;
-                    gip_status_start_us = time_us_32();
-                    gip_last_status_us = gip_status_start_us;
-                    send_gip_status();
-                } else if (st == 0x01 || st == 0x04 || st == 0x05) { // Stop / Off / Quiesce
-                    gip_motor_active = false;
-                    gip_cur_l_main = gip_cur_r_main = gip_cur_l_trig = gip_cur_r_trig = 0;
-                    push_xbox_motors_to_bt(0, 0, 0, 0);
-                    if (st == 0x01) gip_state = GipState::Hello;
-                } else if (st == 0x07) { // Reset
-                    gip_motor_active = false;
-                    gip_state = GipState::Hello;
-                    gip_last_hello_us = time_us_32();
-                    send_gip_hello();
-                }
-            } else if (msg == 0x09 && xferred_bytes >= 11 && xbox_rx_buf[4] == 0x00) {
-                uint8_t bm = xbox_rx_buf[5];
-                uint8_t lt = xbox_rx_buf[6];
-                uint8_t rt = xbox_rx_buf[7];
-                uint8_t lm = xbox_rx_buf[8];
-                uint8_t rm = xbox_rx_buf[9];
-                uint8_t dur = xbox_rx_buf[10];
-                if (dur == 0) {
-                    gip_cur_l_main = gip_cur_r_main = gip_cur_l_trig = gip_cur_r_trig = 0;
-                    gip_motor_active = false;
-                } else {
-                    if (bm & 0x08u) gip_cur_l_trig = std::min<uint8_t>(lt, 100);
-                    if (bm & 0x04u) gip_cur_r_trig = std::min<uint8_t>(rt, 100);
-                    if (bm & 0x02u) gip_cur_l_main = static_cast<uint8_t>((std::min<uint8_t>(lm, 100) * 255u) / 100u);
-                    if (bm & 0x01u) gip_cur_r_main = static_cast<uint8_t>((std::min<uint8_t>(rm, 100) * 255u) / 100u);
-                    gip_motor_active = (gip_cur_l_main | gip_cur_r_main | gip_cur_l_trig | gip_cur_r_trig) != 0;
-                    gip_motor_stop_at_us = time_us_32() + static_cast<uint32_t>(dur) * 10000u;
-                }
-                push_xbox_motors_to_bt(gip_cur_l_main, gip_cur_r_main, gip_cur_l_trig, gip_cur_r_trig);
-            }
-        }
+    if (result == XFER_RESULT_SUCCESS && g_usb_mode == UsbMode::Xbox360 &&
+        xferred_bytes >= 8 && xbox_rx_buf[0] == 0x00 && xbox_rx_buf[1] == 0x08) {
+        push_xbox_motors_to_bt(xbox_rx_buf[3], xbox_rx_buf[4]);
     }
     xbox_arm_out(rhport);
     return true;
@@ -554,51 +286,6 @@ void try_send_hid_input() {
         uint8_t rpt[20]{};
         build_x360_input(rpt);
         if (xbox_send_pkt(rpt, sizeof(rpt))) input_dirty = false;
-        return;
-    }
-
-    if (g_usb_mode == UsbMode::XboxSeries) {
-        uint32_t now = time_us_32();
-        if (gip_state == GipState::Hello) {
-            if (!xbox_in_busy && static_cast<int32_t>(now - gip_last_hello_us) >= 500000) {
-                gip_last_hello_us = now;
-                send_gip_hello();
-            }
-            return;
-        }
-        if (gip_state != GipState::Active || xbox_in_busy) return;
-
-        uint32_t status_interval = (static_cast<uint32_t>(now - gip_status_start_us) < 10000000u) ? 1000000u : 20000000u;
-        if (static_cast<int32_t>(now - gip_last_status_us) >= static_cast<int32_t>(status_interval)) {
-            gip_last_status_us = now;
-            if (send_gip_status()) return;
-        }
-
-        bool guide_now = (latest_input_report[9] & 0x01u) != 0;
-        if (guide_now != gip_prev_guide) {
-            uint8_t gpkt[6] = {0x07, 0x20, next_seq(gip_cmd_seq), 0x02, static_cast<uint8_t>(guide_now ? 1 : 0), 0x5B};
-            if (xbox_send_pkt(gpkt, sizeof(gpkt))) {
-                gip_prev_guide = guide_now;
-            }
-            return;
-        }
-
-        uint8_t p14[14]{};
-        build_gip_input_payload(p14);
-        bool changed = std::memcmp(p14, gip_last_sent_14b, 14) != 0;
-        if ((changed || input_dirty) && static_cast<int32_t>(now - gip_last_input_us) >= 4000) {
-            uint8_t gp[18]{};
-            gp[0] = 0x20;
-            gp[1] = 0x00;
-            gp[2] = next_seq(gip_data_seq);
-            gp[3] = 0x0E;
-            std::memcpy(gp + 4, p14, 14);
-            if (xbox_send_pkt(gp, sizeof(gp))) {
-                std::memcpy(gip_last_sent_14b, p14, 14);
-                gip_last_input_us = now;
-                input_dirty = false;
-            }
-        }
     }
 }
 
@@ -635,12 +322,6 @@ void usb_submit_bt_input_report(uint8_t const *report_63b, uint16_t len) {
 
 void usb_poll() {
     tud_task();
-    if (g_usb_mode == UsbMode::XboxSeries && gip_motor_active &&
-        static_cast<int32_t>(time_us_32() - gip_motor_stop_at_us) >= 0) {
-        gip_motor_active = false;
-        gip_cur_l_main = gip_cur_r_main = gip_cur_l_trig = gip_cur_r_trig = 0;
-        push_xbox_motors_to_bt(0, 0, 0, 0);
-    }
     try_send_hid_input();
 }
 

@@ -169,7 +169,9 @@ void process_frames(int16_t const *frames, uint32_t count, uint32_t now_us) {
                 out_l = clamp_i8(static_cast<int32_t>(vl));
                 out_r = clamp_i8(static_cast<int32_t>(vr));
             }
-            push_haptic_pair(out_l, out_r);
+            if (!test_wave_active) {
+                push_haptic_pair(out_l, out_r);
+            }
             decimate_sum_l = 0.0f;
             decimate_sum_r = 0.0f;
             decimate_accum_count = 0;
