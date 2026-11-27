@@ -193,6 +193,7 @@ public partial class MainWindow : Window
 
         StickDeadzoneSlider.Value = _settings.StickDeadzonePct;
         StickDeadzoneLabel.Text = $"{_settings.StickDeadzonePct}%";
+        UpdatePollRateUi(_settings.UsbPollRateHz);
 
         HapticGainSlider.Value = _settings.HapticGainPct;
         HapticGainLabel.Text = $"{_settings.HapticGainPct}%";
@@ -621,6 +622,9 @@ public partial class MainWindow : Window
                 StickDeadzoneSlider.Value = _settings.StickDeadzonePct;
                 StickDeadzoneLabel.Text = $"{_settings.StickDeadzonePct}%";
 
+                _settings.UsbPollRateHz = NormalizePollRate(cfg.UsbPollRateHz);
+                UpdatePollRateUi(_settings.UsbPollRateHz);
+
                 _settings.LedOverride = cfg.LedOverride;
                 _settings.LedR = cfg.LedR;
                 _settings.LedG = cfg.LedG;
@@ -658,6 +662,7 @@ public partial class MainWindow : Window
         _pico.SetHapticGain(_settings.HapticGainPct);
         _pico.SetImpulseTriggers(_settings.ImpulseTriggerMode, _settings.ImpulseTriggerStrengthPct);
         _pico.SetStickDeadzone(_settings.StickDeadzonePct);
+        _pico.SetPollRate(_settings.UsbPollRateHz);
         _pico.SetMicLed(_settings.MicLedMode);
         if (_settings.LedOverride) _pico.SetLed(_settings.LedR, _settings.LedG, _settings.LedB);
         else _pico.SetLedAuto();
@@ -868,6 +873,41 @@ public partial class MainWindow : Window
         _pico.SetStickDeadzone(pct);
         FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
     }
+
+    private void OnPollRate250Click(object? sender, RoutedEventArgs e) => SetPollRate(250);
+    private void OnPollRate500Click(object? sender, RoutedEventArgs e) => SetPollRate(500);
+    private void OnPollRate1000Click(object? sender, RoutedEventArgs e) => SetPollRate(1000);
+
+    private void SetPollRate(int hz)
+    {
+        hz = NormalizePollRate(hz);
+        _settings.UsbPollRateHz = hz;
+        _settings.Save();
+        UpdatePollRateUi(hz);
+        _pico.SetPollRate(hz);
+        FlashSyncBadgeTxt.Text = "Pico Flash: Auto-Saved";
+    }
+
+    private void UpdatePollRateUi(int hz)
+    {
+        hz = NormalizePollRate(hz);
+        BtnPoll250.Classes.Remove("accent");
+        BtnPoll500.Classes.Remove("accent");
+        BtnPoll1000.Classes.Remove("accent");
+        if (hz == 250) BtnPoll250.Classes.Add("accent");
+        else if (hz == 500) BtnPoll500.Classes.Add("accent");
+        else BtnPoll1000.Classes.Add("accent");
+
+        PollRateBadgeTxt.Text = hz switch
+        {
+            250 => "250 Hz (4 ms)",
+            500 => "500 Hz (2 ms)",
+            _ => "1000 Hz (1 ms)"
+        };
+    }
+
+    private static int NormalizePollRate(int hz)
+        => hz <= 375 ? 250 : hz <= 750 ? 500 : 1000;
 
     private void OnCalibrateGyroClick(object? sender, RoutedEventArgs e) => _mouse.StartGyroCalibration();
 

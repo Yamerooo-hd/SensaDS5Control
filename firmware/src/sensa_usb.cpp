@@ -25,6 +25,8 @@ uint8_t latest_input_report[63]{
 };
 bool input_dirty = false;
 bool hid_in_flight = false;
+uint32_t last_input_tx_us = 0;
+bool has_sent_input = false;
 
 bool bt_ready = false;
 bool usb_attached = false;
@@ -273,11 +275,20 @@ uint16_t synthetic_dualsense_feature(uint8_t report_id, uint8_t *buf, uint16_t r
 void try_send_hid_input() {
     if (!g_telemetry.usb_mounted) return;
 
+    uint32_t min_interval_us = (g_usb_poll_rate_hz <= 250) ? 4000u
+                             : (g_usb_poll_rate_hz <= 500) ? 2000u
+                             : 0u;
+    if (min_interval_us > 0 && has_sent_input) {
+        if ((time_us_32() - last_input_tx_us) < min_interval_us) return;
+    }
+
     if (g_usb_mode == UsbMode::DualSense) {
         if (!tud_hid_ready() || hid_in_flight || !input_dirty) return;
         if (tud_hid_report(0x01, latest_input_report, sizeof(latest_input_report))) {
             input_dirty = false;
             hid_in_flight = true;
+            last_input_tx_us = time_us_32();
+            has_sent_input = true;
         }
         return;
     }
@@ -286,7 +297,11 @@ void try_send_hid_input() {
         if (xbox_in_busy || xbox_ep_in == 0 || !input_dirty) return;
         uint8_t rpt[20]{};
         build_x360_input(rpt);
-        if (xbox_send_pkt(rpt, sizeof(rpt))) input_dirty = false;
+        if (xbox_send_pkt(rpt, sizeof(rpt))) {
+            input_dirty = false;
+            last_input_tx_us = time_us_32();
+            has_sent_input = true;
+        }
     }
 }
 

@@ -238,6 +238,7 @@ public sealed class PicoBridgeClient : IDisposable
     public void SetImpulseTriggers(int mode, int strengthPct) => SendCommand($"imptrig {Math.Clamp(mode, 0, 2)} {Math.Clamp(strengthPct, 0, 100)}");
     public void TriggerImpulseTest(int pct = 85, int ms = 650) => SendCommand($"imptrigtest {Math.Clamp(pct, 10, 100)} {Math.Clamp(ms, 50, 3000)}");
     public void SetStickDeadzone(int pct) => SendCommand($"deadzone {Math.Clamp(pct, 0, 25)}");
+    public void SetPollRate(int hz) => SendCommand($"pollrate {(hz <= 375 ? 250 : hz <= 750 ? 500 : 1000)}");
     public void RequestConfig() => SendCommand("getcfg");
     public void SaveConfigToFlash() => SendCommand("save");
     public void StartPairing() => SendCommand("pair");

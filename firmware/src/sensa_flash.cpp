@@ -16,7 +16,7 @@ namespace sensa {
 namespace {
 
 constexpr uint32_t kFlashMagic = 0x53454E32u; // "SEN2"
-constexpr uint16_t kFlashVersion = 1;
+constexpr uint16_t kFlashVersion = 2;
 constexpr uint32_t kSaveDebounceUs = 1200000u;
 
 // Reserve 6 sectors from end of flash:
@@ -58,6 +58,8 @@ struct __attribute__((packed)) PersistedConfig {
     uint8_t trig_l_override;
     uint8_t trig_l[11];
 
+    uint16_t usb_poll_rate_hz;
+
     uint32_t crc32;
 };
 
@@ -83,6 +85,7 @@ void populate_cfg_from_runtime(PersistedConfig &cfg, uint32_t seq) {
     cfg.usb_mode = static_cast<uint8_t>(g_usb_mode);
     cfg.haptic_mode = static_cast<uint8_t>(g_haptic_mode);
     cfg.stick_deadzone_pct = g_stick_deadzone_pct;
+    cfg.usb_poll_rate_hz = g_usb_poll_rate_hz;
 
     cfg.noise_floor_pct = g_dsp_config.noise_floor_pct;
     cfg.gain_x10 = g_dsp_config.gain_x10;
@@ -149,6 +152,7 @@ bool config_load_from_flash(bool watchdog_usb_override) {
         g_haptic_mode = static_cast<HapticMode>(copy.haptic_mode);
     }
     g_stick_deadzone_pct = clamp_u8(copy.stick_deadzone_pct, 0, 25);
+    g_usb_poll_rate_hz = normalize_poll_rate_hz(copy.usb_poll_rate_hz);
 
     g_dsp_config.noise_floor_pct = clamp_u8(copy.noise_floor_pct, 0, 50);
     g_dsp_config.gain_x10 = clamp_u16(copy.gain_x10, 1, 100);
@@ -210,8 +214,8 @@ bool config_save_now() {
         current_seq++;
         last_saved_crc = to_write.crc32;
         flash_fresh = false;
-        console_printf("[FLASH] Saved standalone config (seq=%lu usb=%s dz=%u%%)\n",
-                       static_cast<unsigned long>(current_seq), usb_mode_name(g_usb_mode), g_stick_deadzone_pct);
+        console_printf("[FLASH] Saved standalone config (seq=%lu usb=%s dz=%u%% poll=%uHz)\n",
+                       static_cast<unsigned long>(current_seq), usb_mode_name(g_usb_mode), g_stick_deadzone_pct, g_usb_poll_rate_hz);
         return true;
     }
     console_printf("[FLASH] Save failed rc=%d\n", rc);
