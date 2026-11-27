@@ -46,6 +46,10 @@ bool pairing_window = false;
 uint32_t pairing_deadline_us = 0;
 bool inquiry_active = false;
 bool outbound_connecting = false;
+bool pairing_target_found = false;
+bd_addr_t pairing_target_addr{};
+uint8_t pairing_target_page_rep = 0;
+uint16_t pairing_target_clk_off = 0;
 
 // Outgoing TX state
 uint8_t bt_seq_nibble = 0;
@@ -626,6 +630,7 @@ void reset_session_state() {
     last_imp_sent_l = 0;
     last_imp_sent_r = 0;
     outbound_connecting = false;
+    pairing_target_found = false;
     sdp_stage = SdpStage::Idle;
     sdp_auto_pending = false;
     ctrl_q_head = 0;
@@ -931,7 +936,7 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
             break;
 
         case GAP_EVENT_INQUIRY_RESULT: {
-            if (!pairing_window || outbound_connecting || acl_handle != HCI_CON_HANDLE_INVALID) break;
+            if (!pairing_window || pairing_target_found || outbound_connecting || acl_handle != HCI_CON_HANDLE_INVALID) break;
             uint32_t cod = gap_event_inquiry_result_get_class_of_device(packet);
             bd_addr_t addr;
             gap_event_inquiry_result_get_bd_addr(packet, addr);
@@ -945,49 +950,71 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
             console_printf("[BT] Inquiry found %s CoD=0x%06lX name='%s'\n",
                            bd_addr_to_str(addr), static_cast<unsigned long>(cod), name_buf);
             // Major Device Class 5 = Peripheral (Gamepads/Controllers)
+            // Defer hci_create_connection until GAP_EVENT_INQUIRY_COMPLETE to avoid HCI 0x0C (Command Disallowed).
             if (major == 5) {
-                uint8_t page_rep = gap_event_inquiry_result_get_page_scan_repetition_mode(packet);
-                uint16_t clk_off = gap_event_inquiry_result_get_clock_offset(packet);
-                uint16_t valid_clk = (clk_off != 0) ? static_cast<uint16_t>((clk_off & 0x7FFFu) | 0x8000u) : 0;
-                gap_inquiry_stop();
-                inquiry_active = false;
-                bd_addr_copy(peer_addr, addr);
-                peer_addr_valid = true;
-                std::memcpy(g_telemetry.bt_addr, addr, 6);
+                bd_addr_copy(pairing_target_addr, addr);
+                pairing_target_page_rep = gap_event_inquiry_result_get_page_scan_repetition_mode(packet);
+                pairing_target_clk_off = gap_event_inquiry_result_get_clock_offset(packet);
+                pairing_target_found = true;
                 std::memcpy(g_telemetry.bt_name, name_buf, sizeof(g_telemetry.bt_name));
-                outbound_connecting = true;
-                g_telemetry.bt_connecting = true;
-                uint8_t st = hci_send_cmd(
-                    &hci_create_connection,
-                    addr,
-                    hci_usable_acl_packet_types(),
-                    page_rep,
-                    0,
-                    valid_clk,
-                    1
-                );
-                console_printf("[BT] Connecting to %s -> status=0x%02X\n", bd_addr_to_str(addr), st);
+                gap_inquiry_stop();
             }
             break;
         }
 
         case GAP_EVENT_INQUIRY_COMPLETE:
             inquiry_active = false;
-            if (pairing_window && acl_handle == HCI_CON_HANDLE_INVALID && !outbound_connecting) {
-                gap_inquiry_start(8);
-                inquiry_active = true;
+            if (pairing_window && pairing_target_found && !outbound_connecting && acl_handle == HCI_CON_HANDLE_INVALID) {
+                pairing_target_found = false;
+                bd_addr_copy(peer_addr, pairing_target_addr);
+                peer_addr_valid = true;
+                std::memcpy(g_telemetry.bt_addr, pairing_target_addr, 6);
+                uint16_t valid_clk = (pairing_target_clk_off != 0)
+                                         ? static_cast<uint16_t>((pairing_target_clk_off & 0x7FFFu) | 0x8000u)
+                                         : 0;
+                outbound_connecting = true;
+                g_telemetry.bt_connecting = true;
+                uint8_t st = hci_send_cmd(
+                    &hci_create_connection,
+                    pairing_target_addr,
+                    hci_usable_acl_packet_types(),
+                    pairing_target_page_rep,
+                    0,
+                    valid_clk,
+                    1
+                );
+                console_printf("[BT] Connecting to %s -> status=0x%02X\n", bd_addr_to_str(pairing_target_addr), st);
+                if (st != ERROR_CODE_SUCCESS) {
+                    outbound_connecting = false;
+                    g_telemetry.bt_connecting = false;
+                }
+            } else if (pairing_window && acl_handle == HCI_CON_HANDLE_INVALID && !outbound_connecting) {
+                uint8_t st = gap_inquiry_start(8);
+                inquiry_active = (st == ERROR_CODE_SUCCESS);
             }
             break;
 
+        case HCI_EVENT_COMMAND_STATUS: {
+            uint16_t opcode = hci_event_command_status_get_command_opcode(packet);
+            uint8_t st = hci_event_command_status_get_status(packet);
+            if (opcode == HCI_OPCODE_HCI_CREATE_CONNECTION && st != ERROR_CODE_SUCCESS) {
+                console_printf("[BT] HCI Create Connection rejected status=0x%02X\n", st);
+                outbound_connecting = false;
+                g_telemetry.bt_connecting = false;
+            }
+            break;
+        }
+
         case HCI_EVENT_CONNECTION_COMPLETE: {
             outbound_connecting = false;
+            pairing_target_found = false;
             g_telemetry.bt_connecting = false;
             uint8_t st = hci_event_connection_complete_get_status(packet);
             if (st != 0) {
                 console_printf("[BT] ACL connect failed status=0x%02X\n", st);
                 if (pairing_window && !inquiry_active) {
-                    gap_inquiry_start(8);
-                    inquiry_active = true;
+                    uint8_t ist = gap_inquiry_start(8);
+                    inquiry_active = (ist == ERROR_CODE_SUCCESS);
                 } else if (has_bonded_addr) {
                     gap_connectable_control(1);
                 }
@@ -998,8 +1025,6 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
             peer_addr_valid = true;
             std::memcpy(g_telemetry.bt_addr, peer_addr, 6);
             g_telemetry.bt_acl_connected = true;
-            pairing_window = false;
-            g_telemetry.bt_pairing_active = false;
             gap_connectable_control(0);
             gap_inquiry_stop();
             inquiry_active = false;
@@ -1044,6 +1069,8 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
 
         case HCI_EVENT_LINK_KEY_NOTIFICATION:
             refresh_bonded_key();
+            pairing_window = false;
+            g_telemetry.bt_pairing_active = false;
             gap_set_bondable_mode(0);
             console_printf("[BT] Link key bonded!\n");
             break;
@@ -1052,6 +1079,8 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
             uint8_t lvl = gap_event_security_level_get_security_level(packet);
             if (lvl >= LEVEL_2 && !security_ready) {
                 security_ready = true;
+                pairing_window = false;
+                g_telemetry.bt_pairing_active = false;
                 security_ready_us = time_us_32();
                 hid_local_fallback_pending = true;
                 console_printf("[BT] Security LEVEL_%u -> waiting 650ms for controller HID channels\n", lvl);
@@ -1109,6 +1138,10 @@ void initiate_bonded_connection(char const *tag) {
         1
     );
     console_printf("[BT] %s %s -> status=0x%02X\n", tag, bd_addr_to_str(bonded_addr), st);
+    if (st != ERROR_CODE_SUCCESS) {
+        outbound_connecting = false;
+        g_telemetry.bt_connecting = false;
+    }
 }
 
 } // namespace
@@ -1145,6 +1178,7 @@ bool bt_init() {
 
 void bt_start_pairing() {
     pairing_window = true;
+    pairing_target_found = false;
     pairing_deadline_us = time_us_32() + 45000000u;
     g_telemetry.bt_pairing_active = true;
     gap_set_bondable_mode(1);
@@ -1174,6 +1208,7 @@ void bt_forget_all() {
 
 void bt_disconnect_now() {
     pairing_window = false;
+    pairing_target_found = false;
     g_telemetry.bt_pairing_active = false;
     gap_inquiry_stop();
     inquiry_active = false;
@@ -1443,13 +1478,14 @@ void bt_poll() {
         }
     }
 
-    if (pairing_window && !inquiry_active && !outbound_connecting && acl_handle == HCI_CON_HANDLE_INVALID) {
+    if (pairing_window && !pairing_target_found && !inquiry_active && !outbound_connecting && acl_handle == HCI_CON_HANDLE_INVALID) {
         uint8_t st = gap_inquiry_start(8);
         inquiry_active = (st == ERROR_CODE_SUCCESS);
     }
 
-    if (pairing_window && static_cast<int32_t>(now_us - pairing_deadline_us) >= 0) {
+    if (pairing_window && acl_handle == HCI_CON_HANDLE_INVALID && static_cast<int32_t>(now_us - pairing_deadline_us) >= 0) {
         pairing_window = false;
+        pairing_target_found = false;
         g_telemetry.bt_pairing_active = false;
         gap_inquiry_stop();
         inquiry_active = false;
