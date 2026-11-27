@@ -526,9 +526,9 @@
               </Grid>
               <Border Classes="subcard" Padding="12,10">
                 <StackPanel Spacing="5">
-                  <TextBlock Text="How to pair your Cosmic Byte Sensa after flashing:" FontWeight="SemiBold" FontSize="13" />
+                  <TextBlock Text="When do I need to pair? (First-time setup or after Nuke / Reset)" FontWeight="SemiBold" FontSize="13" />
                   <TextBlock Classes="dim" TextWrapping="Wrap"
-                             Text="1. Make sure Pico 2 W is plugged in (SensaBridge firmware active).&#10;2. Hold Share (Create) + PS button on your Sensa for ~3 seconds until the lightbar double-blinks.&#10;3. Click 'Start Pairing Scan' below (or press Pico BOOTSEL 3×) — Pico connects &amp; remembers your controller permanently." />
+                             Text="Firmware updates preserve existing pairing (just press PS on your controller to connect). Only to pair a new or wiped Pico:&#10;1. Hold Share (Create) + PS button on your Sensa for ~3 seconds until the lightbar double-blinks.&#10;2. Click 'Start Pairing Scan' below (or press Pico BOOTSEL 3×) — Pico connects &amp; remembers your controller permanently." />
                 </StackPanel>
               </Border>
               <WrapPanel Orientation="Horizontal">

@@ -148,7 +148,7 @@ void handle_command(char *line) {
         uint8_t led_en = 0, lr = 0, lg = 0, lb = 0, mic = 0, tr_en = 0, tl_en = 0;
         uint8_t tr[11]{}, tl[11]{};
         bt_export_persisted_state(led_en, lr, lg, lb, mic, tr_en, tr, tl_en, tl);
-        console_printf("CFG,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%s\n",
+        console_printf("CFG,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%s,%u\n",
                        config_is_flash_fresh() ? 1u : 0u,
                        static_cast<unsigned>(g_usb_mode),
                        static_cast<unsigned>(g_haptic_mode),
@@ -156,7 +156,8 @@ void handle_command(char *line) {
                        static_cast<unsigned>(g_dsp_config.impulse_mode),
                        g_dsp_config.impulse_strength_pct,
                        g_stick_deadzone_pct,
-                       led_en, lr, lg, lb, mic, tl_en, tr_en, kFirmwareVersion);
+                       led_en, lr, lg, lb, mic, tl_en, tr_en, kFirmwareVersion,
+                       g_telemetry.bt_has_bonded_key ? 1u : 0u);
     } else if (eq_ci(cmd, "imptrigtest")) {
         int pct = argc >= 2 ? clamp_arg(tokens[1], 5, 100) : 85;
         int ms = argc >= 3 ? clamp_arg(tokens[2], 50, 3000) : 600;

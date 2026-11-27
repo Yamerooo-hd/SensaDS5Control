@@ -88,7 +88,8 @@ public sealed record PicoConfigSample(
     byte MicLedMode,
     bool LeftTriggerOverride,
     bool RightTriggerOverride,
-    string FirmwareVersion = "0.1.x")
+    string FirmwareVersion = "0.1.x",
+    bool HasBondedKey = false)
 {
     public static bool TryParse(string line, out PicoConfigSample cfg)
     {
@@ -113,7 +114,8 @@ public sealed record PicoConfigSample(
                 MicLedMode: byte.Parse(p[12]),
                 LeftTriggerOverride: p[13] == "1",
                 RightTriggerOverride: p[14] == "1",
-                FirmwareVersion: p.Length > 15 && !string.IsNullOrWhiteSpace(p[15]) ? p[15].Trim() : "0.1.x");
+                FirmwareVersion: p.Length > 15 && !string.IsNullOrWhiteSpace(p[15]) ? p[15].Trim() : "0.1.x",
+                HasBondedKey: p.Length > 16 && p[16].Trim() == "1");
             return true;
         }
         catch

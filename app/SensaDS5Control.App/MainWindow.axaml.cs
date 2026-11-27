@@ -40,6 +40,8 @@ public partial class MainWindow : Window
     private int _activeNavIndex;
     private byte _lastUsbMode;
     private string _picoFwVersion = "";
+    private bool _hasBondedKey;
+    private bool _justFlashedFw;
 
     private static readonly IBrush DotGreen = new SolidColorBrush(Color.Parse("#22C55E"));
     private static readonly IBrush DotAmber = new SolidColorBrush(Color.Parse("#F59E0B"));
@@ -394,7 +396,7 @@ public partial class MainWindow : Window
             uf2,
             "SensaBridge.uf2",
             isNuke: false,
-            successMessage: $"SensaBridge v{BundledFirmware.Version} installed! Now hold Share + PS on your Sensa for 3s to pair.");
+            successMessage: $"SensaBridge v{BundledFirmware.Version} installed! Checking controller pairing...");
     }
 
     private void OnNukePromptClick(object? sender, RoutedEventArgs e)
@@ -453,8 +455,15 @@ public partial class MainWindow : Window
 
             if (!isNuke)
             {
-                PairingLiveStateTxt.Text = "Hold Share + PS on Sensa...";
+                _justFlashedFw = true;
+                PairingLiveStateTxt.Text = "Rebooting Pico & checking bond...";
                 await Task.Delay(1800, _fwActionCts.Token);
+            }
+            else
+            {
+                _justFlashedFw = false;
+                _hasBondedKey = false;
+                PairingLiveStateTxt.Text = "Pico wiped (RP2350 drive)";
             }
         }
         catch (OperationCanceledException)
@@ -613,6 +622,27 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             _picoFwVersion = cfg.FirmwareVersion;
+            _hasBondedKey = cfg.HasBondedKey;
+
+            if (_justFlashedFw)
+            {
+                _justFlashedFw = false;
+                if (cfg.HasBondedKey)
+                {
+                    FwActionStatusTxt.Text = $"SensaBridge v{cfg.FirmwareVersion} installed! Existing controller pairing preserved — press PS on your Sensa to connect.";
+                    PairingLiveStateTxt.Text = "Already Paired — Press PS to Wake";
+                }
+                else
+                {
+                    FwActionStatusTxt.Text = $"SensaBridge v{cfg.FirmwareVersion} installed! No controller paired yet — hold Share + PS on your Sensa for 3s to pair.";
+                    PairingLiveStateTxt.Text = "Not Paired — Hold Share + PS";
+                }
+            }
+            else if (!_wasBtControllerReady)
+            {
+                PairingLiveStateTxt.Text = cfg.HasBondedKey ? "Bonded — Press PS on Sensa" : "Not Paired — Hold Share + PS";
+            }
+
             if (cfg.IsFreshFlash)
             {
                 PushSavedProfileToPico();
@@ -745,7 +775,14 @@ public partial class MainWindow : Window
             PortBadgeTxt.Text = $"{_pico.ActivePortName ?? "USB"} • {usbShort}";
             string chgTag = s.ChargingState != 0 ? " ⚡" : "";
             BatteryBadgeTxt.Text = btNow ? (s.FullMode0x31 ? $"Bat: {s.BatteryPct}%{chgTag}" : "Short 0x01") : "BT Idle";
-            PairingLiveStateTxt.Text = btNow ? "✓ Sensa Paired & Connected" : "Ready — Hold Share + PS or press PS";
+            if (btNow)
+            {
+                PairingLiveStateTxt.Text = "✓ Sensa Paired & Connected";
+            }
+            else if (!PairingLiveStateTxt.Text.StartsWith("Scanning", StringComparison.Ordinal))
+            {
+                PairingLiveStateTxt.Text = _hasBondedKey ? "Bonded — Press PS on Sensa" : "Not Paired — Hold Share + PS";
+            }
 
             DashBridgeInfo.Text = $"Bridge: Mode {s.Mode} | 0x36 tx={s.Tx0x36} | Gain {s.HapticGainPct}% | {usbShort}";
             DashBatteryInfo.Text = btNow

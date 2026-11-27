@@ -977,9 +977,14 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
             hci_event_link_key_request_get_bd_addr(packet, addr);
             link_key_t key;
             link_key_type_t type;
-            if (gap_get_link_key_for_bd_addr(addr, key, &type)) {
+            // During active pairing (Share+PS), ignore stale link keys so SSP negotiates a fresh bond.
+            if (!pairing_window && gap_get_link_key_for_bd_addr(addr, key, &type)) {
                 hci_send_cmd(&hci_link_key_request_reply, addr, key);
             } else {
+                if (pairing_window) {
+                    gap_drop_link_key_for_bd_addr(addr);
+                    refresh_bonded_key();
+                }
                 hci_send_cmd(&hci_link_key_request_negative_reply, addr);
             }
             break;
@@ -1028,8 +1033,8 @@ void hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, 
 
         case HCI_EVENT_AUTHENTICATION_COMPLETE: {
             uint8_t st = hci_event_authentication_complete_get_status(packet);
-            if (st == ERROR_CODE_PIN_OR_KEY_MISSING && peer_addr_valid) {
-                console_printf("[BT] Controller rejected link key -> dropping key and re-pairing\n");
+            if ((st == ERROR_CODE_PIN_OR_KEY_MISSING || st == ERROR_CODE_AUTHENTICATION_FAILURE) && peer_addr_valid) {
+                console_printf("[BT] Controller rejected link key (0x%02X) -> dropping key and re-pairing\n", st);
                 gap_drop_link_key_for_bd_addr(peer_addr);
                 refresh_bonded_key();
                 gap_disconnect(acl_handle);
@@ -1107,6 +1112,11 @@ void bt_start_pairing() {
     g_telemetry.bt_pairing_active = true;
     gap_set_bondable_mode(1);
     gap_connectable_control(1);
+    if (outbound_connecting && peer_addr_valid) {
+        hci_send_cmd(&hci_create_connection_cancel, peer_addr);
+        outbound_connecting = false;
+        g_telemetry.bt_connecting = false;
+    }
     if (acl_handle != HCI_CON_HANDLE_INVALID) {
         gap_disconnect(acl_handle);
         return;
@@ -1388,6 +1398,11 @@ void bt_poll() {
             hid_remote_initiated = false;
             open_hid_channels();
         }
+    }
+
+    if (pairing_window && !inquiry_active && !outbound_connecting && acl_handle == HCI_CON_HANDLE_INVALID) {
+        uint8_t st = gap_inquiry_start(8);
+        inquiry_active = (st == ERROR_CODE_SUCCESS);
     }
 
     if (pairing_window && static_cast<int32_t>(now_us - pairing_deadline_us) >= 0) {
